@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { computePermissionDurationMinutes } from "@/lib/services/leave-engine";
-import { assertPermission, assertAnyPermission } from "@/lib/auth/assertPermission";
+import { assertPermission, assertAnyPermission, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { createNotificationAction } from "@/lib/actions/notifications";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 
@@ -17,7 +17,7 @@ export async function applyShortPermissionAction(
 
   reason = sanitizeInput(reason);
 
-  const permError = await assertPermission("leave.apply.self");
+  const permError = await assertPermission("permission.apply.self");
   if (permError) return permError;
 
   const supabase = await createClient();
@@ -98,24 +98,44 @@ export async function decideShortPermissionAction(
   const csrfError = await validateRequestOrigin();
   if (csrfError) return csrfError;
 
-  const permError = await assertAnyPermission(["leave.approve.manager", "leave.approve.hr", "permission.approve"]);
+  const permError = await assertAnyPermission(["permission.approve", "leave.approve.manager", "leave.approve.hr"]);
   if (permError) return permError;
 
+  const caller = await getAuthenticatedCaller();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Unauthenticated" };
 
-  const { data: emp } = await supabase
-    .from("employees")
-    .select("id")
-    .eq("auth_user_id", user.id)
+  // Fetch permission request to verify anti-self-approval
+  const { data: permRequest } = await supabase
+    .from("permission_requests")
+    .select("employee_id")
+    .eq("id", permissionId)
     .single();
+
+  let deciderId = caller?.employeeId;
+  if (!deciderId) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: emp } = await supabase
+        .from("employees")
+        .select("id")
+        .eq("auth_user_id", user.id)
+        .single();
+      deciderId = emp?.id;
+    }
+  }
+
+  if (!deciderId) return { error: "Employee record not found" };
+
+  // Anti-self-approval guard
+  if (permRequest?.employee_id && permRequest.employee_id === deciderId) {
+    return { error: "Self-approval of short permission requests is not permitted." };
+  }
 
   const { data, error } = await supabase
     .from("permission_requests")
     .update({
       status: decision,
-      approver_id: emp?.id || null,
+      approver_id: deciderId,
     })
     .eq("id", permissionId)
     .select()

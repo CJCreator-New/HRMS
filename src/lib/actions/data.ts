@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { assertPermission } from "@/lib/auth/assertPermission";
+import { assertPermission, assertAnyPermission, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { validateRequestOrigin } from "@/lib/security";
 import {
   mapEmployeeToSearchResult,
@@ -77,22 +77,29 @@ export async function getCalendarDataAction() {
 }
 
 export async function getSalaryDataAction() {
+  const permError = await assertAnyPermission(["salary.view.self", "salary.view.all"]);
+  if (permError) return { structures: [], components: [], assignments: [], error: permError.error };
+
+  const caller = await getAuthenticatedCaller();
+  let employeeId = caller?.employeeId || null;
+
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { structures: [], components: [], assignments: [] };
 
-  const { data: emp } = await supabase
-    .from("employees")
-    .select("id")
-    .eq("auth_user_id", user.id)
-    .single();
-
-  const employeeId = emp?.id || null;
+  if (!employeeId) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: emp } = await supabase
+        .from("employees")
+        .select("id")
+        .eq("auth_user_id", user.id)
+        .single();
+      employeeId = emp?.id || null;
+    }
+  }
 
   // Check if caller has salary.view.all permission
-  const { data: hasViewAll } = await supabase.rpc("has_permission", {
-    perm_code: "salary.view.all",
-  });
+  const isViewAll = await assertPermission("salary.view.all");
+  const hasViewAll = isViewAll === null;
 
   const [{ data: components }, { data: structures }] = await Promise.all([
     supabase.from("salary_components").select("*").order("code"),
@@ -199,19 +206,23 @@ export async function approveReimbursementAction(claimId: string, decision: "app
   const permError = await assertPermission("reimbursement.approve");
   if (permError) return { error: permError.error };
 
+  const caller = await getAuthenticatedCaller();
   const supabase = await createClient();
 
-  // Verify the caller is not approving their own claim (self-approval guard)
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Unauthenticated" };
+  let deciderId = caller?.employeeId;
+  if (!deciderId) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: emp } = await supabase
+        .from("employees")
+        .select("id")
+        .eq("auth_user_id", user.id)
+        .single();
+      deciderId = emp?.id;
+    }
+  }
 
-  const { data: emp } = await supabase
-    .from("employees")
-    .select("id")
-    .eq("auth_user_id", user.id)
-    .single();
-
-  if (!emp) return { error: "Employee record not found" };
+  if (!deciderId) return { error: "Decider employee record not found" };
 
   const { data: claim } = await supabase
     .from("reimbursement_claims")
@@ -219,7 +230,7 @@ export async function approveReimbursementAction(claimId: string, decision: "app
     .eq("id", claimId)
     .single();
 
-  if (claim && claim.employee_id === emp.id) {
+  if (claim && claim.employee_id === deciderId) {
     return { error: "Self-approval of reimbursement claims is not permitted." };
   }
 
@@ -319,3 +330,84 @@ export async function getStatutoryDataAction() {
   if (error) return { profiles: [] };
   return { profiles: profiles || [] };
 }
+
+/**
+ * Admin action to trigger a mass-seeding of mock employees and attendance records
+ * to the database to facilitate local testing and development.
+ */
+export async function triggerMassSeedAction() {
+  const { MOCK_EMPLOYEES, MOCK_ATTENDANCE_RECORDS } = await import("@/lib/seed-data");
+
+  const permError = await assertAnyPermission(["system_admin", "admin.write", "employee.create"]);
+  if (permError) {
+    // In local demo / offline mode, check caller roles
+    const caller = await getAuthenticatedCaller();
+    if (caller && !caller.roles.includes("system_admin") && !caller.roles.includes("hr")) {
+      return { error: "Forbidden: Only administrators can trigger mass data seeding" };
+    }
+  }
+
+  const supabase = await createClient();
+
+  let seededEmployees = 0;
+  let seededAttendance = 0;
+  const errors: string[] = [];
+
+  // 1. Seed employees
+  for (const emp of MOCK_EMPLOYEES) {
+    const { error } = await supabase.from("employees").upsert(
+      {
+        id: emp.id,
+        employee_code: emp.employee_code,
+        full_name: emp.full_name,
+        email: emp.email,
+        phone: emp.phone,
+        date_of_birth: emp.date_of_birth,
+        date_of_joining: emp.date_of_joining,
+        status: emp.status,
+        must_change_password: emp.must_change_password,
+        is_deactivated: emp.is_deactivated,
+      },
+      { onConflict: "id" }
+    );
+
+    if (!error) {
+      seededEmployees++;
+    } else {
+      errors.push(`Employee ${emp.employee_code}: ${error.message}`);
+    }
+  }
+
+  // 2. Seed attendance records
+  for (const att of MOCK_ATTENDANCE_RECORDS) {
+    const { error } = await supabase.from("attendance_records").upsert(
+      {
+        id: att.id,
+        employee_id: att.employee_id,
+        attendance_date: att.attendance_date,
+        status: att.status,
+        check_in_time: att.check_in_time,
+        check_out_time: att.check_out_time,
+        total_work_minutes: att.total_work_minutes,
+        remarks: att.remarks,
+        is_locked: att.is_locked ?? false,
+      },
+      { onConflict: "employee_id,attendance_date" }
+    );
+
+    if (!error) {
+      seededAttendance++;
+    }
+  }
+
+  return {
+    success: true,
+    seededEmployees,
+    seededAttendance,
+    totalExpectedEmployees: MOCK_EMPLOYEES.length,
+    totalExpectedAttendance: MOCK_ATTENDANCE_RECORDS.length,
+    errors: errors.length > 0 ? errors.slice(0, 5) : undefined,
+    message: `Successfully seeded ${seededEmployees} employees and ${seededAttendance} attendance records.`,
+  };
+}
+

@@ -103,7 +103,7 @@ create policy attendance_read on attendance_records for select
 create policy attendance_write on attendance_records for insert
   with check (employee_id = auth_employee_id() or has_permission('attendance.mark.self'));
 create policy attendance_update on attendance_records for update
-  using (has_permission('attendance.correct.override') or is_current_manager_of(auth_employee_id(), employee_id) or employee_id = auth_employee_id());
+  using (has_permission('attendance.correct.override') or is_current_manager_of(auth_employee_id(), employee_id));
 
 create policy punches_read on attendance_punches for select
   using (exists (select 1 from attendance_records r where r.id = attendance_record_id and (r.employee_id = auth_employee_id() or has_permission('attendance.view', r.employee_id))));

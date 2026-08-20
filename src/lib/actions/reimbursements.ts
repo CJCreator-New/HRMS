@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { assertPermission } from "@/lib/auth/assertPermission";
+import { assertPermission, assertCallerIdentity } from "@/lib/auth/assertPermission";
 import { checkActionRateLimit } from "@/lib/auth/rate-limit";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 
@@ -25,6 +25,9 @@ export async function submitReimbursementClaimAction(
 
   const permError = await assertPermission("reimbursement.apply.self");
   if (permError) return { success: false, error: permError.error };
+
+  const identityError = await assertCallerIdentity(employeeId, ["reimbursement.view.all", "reimbursement.approve"]);
+  if (identityError) return { success: false, error: identityError.error };
 
   const supabase = await createClient();
 

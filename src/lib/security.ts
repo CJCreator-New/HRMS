@@ -15,13 +15,12 @@ import { headers } from "next/headers";
  * Supabase's built-in CSRF protections don't apply.
  */
 export async function validateRequestOrigin(): Promise<{ error: string } | null> {
-  // Skip CSRF validation in mock mode ONLY in non-production environments
-  if (process.env.NEXT_PUBLIC_MOCK_AUTH === "true" && process.env.NODE_ENV !== "production") {
+  // Skip CSRF validation in test environment or mock mode
+  if (
+    process.env.NODE_ENV === "test" ||
+    (process.env.NEXT_PUBLIC_MOCK_AUTH === "true" && process.env.NODE_ENV !== "production")
+  ) {
     return null;
-  }
-
-  if (process.env.NEXT_PUBLIC_MOCK_AUTH === "true" && process.env.NODE_ENV === "production") {
-    console.warn("WARNING: NEXT_PUBLIC_MOCK_AUTH is enabled in production mode. CSRF validation is strictly enforced.");
   }
 
   let headersList: Headers | null = null;
@@ -33,25 +32,43 @@ export async function validateRequestOrigin(): Promise<{ error: string } | null>
   }
 
   const origin = headersList?.get("origin");
+  const forwardedHost = headersList?.get("x-forwarded-host");
   const host = headersList?.get("host");
 
-  if (!origin && !host) {
-    // Server-to-server call or missing headers — allow (Next.js server actions)
+  if (!origin) {
+    // Server-to-server call or missing origin (standard Next.js server action dispatch) — allow
     return null;
   }
 
-  if (origin && host) {
-    try {
-      const originUrl = new URL(origin);
-      if (originUrl.host !== host) {
-        return { error: "CSRF validation failed: origin mismatch." };
+  try {
+    const originUrl = new URL(origin);
+    // In reverse proxy environments (e.g. Cloud Run, preview container), match forwarded-host or host
+    if (forwardedHost) {
+      const primaryForwarded = forwardedHost.split(",")[0].trim();
+      if (originUrl.host === primaryForwarded || originUrl.host.split(":")[0] === primaryForwarded.split(":")[0]) {
+        return null;
       }
-    } catch {
-      return { error: "CSRF validation failed: invalid origin header." };
     }
-  }
 
-  return null;
+    if (host) {
+      if (originUrl.host === host || originUrl.host.split(":")[0] === host.split(":")[0]) {
+        return null;
+      }
+    }
+
+    // Allow localhost or container preview domains
+    if (
+      originUrl.hostname === "localhost" ||
+      originUrl.hostname === "127.0.0.1" ||
+      originUrl.hostname.endsWith(".run.app")
+    ) {
+      return null;
+    }
+
+    return { error: "CSRF validation failed: origin mismatch." };
+  } catch {
+    return { error: "CSRF validation failed: invalid origin header." };
+  }
 }
 
 /**

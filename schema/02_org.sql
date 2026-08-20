@@ -234,7 +234,8 @@ create policy separation_read on separation_records for select
   using (employee_id = auth_employee_id() or has_permission('separation.view', employee_id));
 create policy separation_insert on separation_records for insert
   with check (
-    has_permission('separation.create.all')
+    employee_id = auth_employee_id()
+    or has_permission('separation.create.all')
     or (separation_type = 'resignation' and is_current_manager_of(auth_employee_id(), employee_id))
   );
 create policy separation_update on separation_records for update

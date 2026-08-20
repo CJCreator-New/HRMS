@@ -5,6 +5,9 @@ import { assertPermission } from "@/lib/auth/assertPermission";
 import { validateRequestOrigin } from "@/lib/security";
 
 export async function getScheduledJobLogsAction(): Promise<{ logs: any[]; error?: string }> {
+  const permError = await assertPermission("job.view");
+  if (permError) return { logs: [], error: permError.error };
+
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("scheduled_job_logs")

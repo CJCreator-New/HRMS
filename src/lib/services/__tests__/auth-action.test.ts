@@ -177,7 +177,7 @@ describe("getCurrentUserRolesAction", () => {
       roles: ["hr", "manager"],
       mustChangePassword: false,
       userName: "multi.hrmgr",
-      employeeId: null,
+      employeeId: "00000000-0000-0000-0000-000000000110",
     });
   });
 

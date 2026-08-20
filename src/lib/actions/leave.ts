@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { resolveLeaveApprover } from "@/lib/services/leave-routing";
 import { computeCompOffExpiryDate } from "@/lib/services/leave-engine";
-import { assertPermission, assertAnyPermission } from "@/lib/auth/assertPermission";
+import { assertPermission, assertAnyPermission, assertCallerIdentity, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { checkActionRateLimit } from "@/lib/auth/rate-limit";
 import { createNotificationAction } from "@/lib/actions/notifications";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
@@ -30,6 +30,10 @@ export async function applyLeaveAction(
 
   const permError = await assertPermission("leave.apply.self");
   if (permError) return permError;
+
+  // Caller identity check — prevent submitting leave on behalf of other employees without HR/manager proxy permissions
+  const identityError = await assertCallerIdentity(employeeId, ["leave.approve.hr", "leave.approve.manager"]);
+  if (identityError) return identityError;
 
   const supabase = await createClient();
 
@@ -114,6 +118,9 @@ export async function approveLeaveAction(requestId: string, approverId: string, 
   const permError = await assertAnyPermission(["leave.approve.manager", "leave.approve.hr"]);
   if (permError) return permError;
 
+  const caller = await getAuthenticatedCaller();
+  const effectiveApproverId = caller?.employeeId || approverId;
+
   const supabase = await createClient();
 
   // Fetch the leave request to verify approver identity and prevent self-approval
@@ -130,7 +137,7 @@ export async function approveLeaveAction(requestId: string, approverId: string, 
   }
 
   // Self-approval guard (FR §1.4)
-  if (leaveRequest.employee_id === approverId) {
+  if (leaveRequest.employee_id === effectiveApproverId) {
     return { error: "Self-approval of leave requests is not permitted." };
   }
 
@@ -138,7 +145,7 @@ export async function approveLeaveAction(requestId: string, approverId: string, 
   const isHrAdmin = await assertPermission("leave.approve.hr");
   if (isHrAdmin === null) {
     // HR Admin — can approve any request
-  } else if (leaveRequest.current_approver_id && leaveRequest.current_approver_id !== approverId) {
+  } else if (leaveRequest.current_approver_id && leaveRequest.current_approver_id !== effectiveApproverId) {
     return { error: "You are not the assigned approver for this request." };
   }
 
@@ -157,7 +164,7 @@ export async function approveLeaveAction(requestId: string, approverId: string, 
     .from("leave_request_approvals")
     .update({ status: "approved", remarks, decided_at: new Date().toISOString() })
     .eq("leave_request_id", requestId)
-    .eq("approver_id", approverId);
+    .eq("approver_id", effectiveApproverId);
 
   if (data?.employee_id) {
     await createNotificationAction(
@@ -180,6 +187,9 @@ export async function rejectLeaveAction(requestId: string, approverId: string, r
   const permError = await assertAnyPermission(["leave.approve.manager", "leave.approve.hr"]);
   if (permError) return permError;
 
+  const caller = await getAuthenticatedCaller();
+  const effectiveApproverId = caller?.employeeId || approverId;
+
   const supabase = await createClient();
 
   // Fetch the leave request to verify approver identity and prevent self-approval
@@ -196,7 +206,7 @@ export async function rejectLeaveAction(requestId: string, approverId: string, r
   }
 
   // Self-approval guard (FR §1.4)
-  if (leaveRequest.employee_id === approverId) {
+  if (leaveRequest.employee_id === effectiveApproverId) {
     return { error: "Self-approval of leave requests is not permitted." };
   }
 
@@ -204,7 +214,7 @@ export async function rejectLeaveAction(requestId: string, approverId: string, r
   const isHrAdmin = await assertPermission("leave.approve.hr");
   if (isHrAdmin === null) {
     // HR Admin — can reject any request
-  } else if (leaveRequest.current_approver_id && leaveRequest.current_approver_id !== approverId) {
+  } else if (leaveRequest.current_approver_id && leaveRequest.current_approver_id !== effectiveApproverId) {
     return { error: "You are not the assigned approver for this request." };
   }
 
@@ -222,7 +232,7 @@ export async function rejectLeaveAction(requestId: string, approverId: string, r
     .from("leave_request_approvals")
     .update({ status: "rejected", remarks, decided_at: new Date().toISOString() })
     .eq("leave_request_id", requestId)
-    .eq("approver_id", approverId);
+    .eq("approver_id", effectiveApproverId);
 
   if (data?.employee_id) {
     await createNotificationAction(
@@ -277,8 +287,11 @@ export async function requestCompOffAction(
   const csrfError = await validateRequestOrigin();
   if (csrfError) return csrfError;
 
-  const permError = await assertPermission("leave.apply.self");
+  const permError = await assertAnyPermission(["compoff.apply.self", "leave.apply.self"]);
   if (permError) return permError;
+
+  const identityError = await assertCallerIdentity(employeeId, ["leave.approve.hr", "leave.approve.manager"]);
+  if (identityError) return identityError;
 
   const supabase = await createClient();
 

@@ -19,6 +19,7 @@ import type { RoleCode } from "@/lib/types";
 // 14-persona × 22-route expected-access matrix from this table (so spec and
 // gate cannot drift).
 export const E2E_MOCK_ALLOWED_ROUTES: Record<string, string[] | "ALL"> = {
+  "admin@company.com": "ALL",
   "sysadmin@company.com": "ALL",
   "hradmin@company.com": [
     "/", "/approvals", "/attendance", "/leave", "/calendar",
@@ -107,6 +108,27 @@ export function hasMockPermission(
   return requiredPermissions.some((p) => heldPermissions.has(p));
 }
 
+export function resolveMockEmployeeIdFromEmail(email: string): string | null {
+  const map: Record<string, string> = {
+    "admin@company.com": "00000000-0000-0000-0000-000000000101",
+    "sysadmin@company.com": "00000000-0000-0000-0000-000000000101",
+    "hradmin@company.com": "00000000-0000-0000-0000-000000000102",
+    "hr.alt@company.com": "00000000-0000-0000-0000-000000000103",
+    "payroll@company.com": "00000000-0000-0000-0000-000000000104",
+    "manager.m1@company.com": "00000000-0000-0000-0000-000000000105",
+    "manager.m2@company.com": "00000000-0000-0000-0000-000000000106",
+    "employee.e1@company.com": "00000000-0000-0000-0000-000000000107",
+    "employee.e2@company.com": "00000000-0000-0000-0000-000000000108",
+    "employee.e3@company.com": "00000000-0000-0000-0000-000000000109",
+    "multi.hrmgr@company.com": "00000000-0000-0000-0000-000000000110",
+    "invited.emp@company.com": "00000000-0000-0000-0000-000000000111",
+    "suspended.emp@company.com": "00000000-0000-0000-0000-000000000112",
+    "notice.emp@company.com": "00000000-0000-0000-0000-000000000113",
+    "offboarded.emp@company.com": "00000000-0000-0000-0000-000000000114",
+  };
+  return map[email] || null;
+}
+
 /**
  * Resolves the mock-mode role set for an email when no real session exists.
  * Used by getCurrentUserRolesAction to drive the client-side role switcher.
@@ -114,7 +136,7 @@ export function hasMockPermission(
 export function resolveMockRolesFromEmail(
   email: string
 ): { roles: string[]; mustChangePassword: boolean } {
-  if (email.includes("sysadmin")) return { roles: ["system_admin"], mustChangePassword: false };
+  if (email.includes("sysadmin") || email.startsWith("admin@")) return { roles: ["system_admin"], mustChangePassword: false };
   if (email.includes("multi.hrmgr")) return { roles: ["hr", "manager"], mustChangePassword: false };
   if (email.includes("hradmin")) return { roles: ["hr"], mustChangePassword: false };
   // hr.alt is a negative/alternate test persona with access revoked (empty route

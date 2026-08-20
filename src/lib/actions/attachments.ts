@@ -1,16 +1,29 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { assertPermission } from "@/lib/auth/assertPermission";
+import { assertPermission, assertAnyPermission, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 
 export async function getAttachmentsAction() {
+  const permError = await assertAnyPermission(["attachment.view", "employee.view.self"]);
+  if (permError) return { attachments: [] };
+
+  const caller = await getAuthenticatedCaller();
+  const isHrOrAdmin = await assertAnyPermission(["employee.view.all", "employee.create"]);
+
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("document_attachments")
     .select("*, employees:uploaded_by(full_name)")
     .order("created_at", { ascending: false })
     .limit(30);
+
+  // If standard employee without view.all, scope to their own uploaded attachments or entities
+  if (isHrOrAdmin !== null && caller?.employeeId) {
+    query = query.or(`uploaded_by.eq.${caller.employeeId},entity_id.eq.${caller.employeeId}`);
+  }
+
+  const { data, error } = await query;
 
   if (error) return { attachments: [] };
   return { attachments: data || [] };

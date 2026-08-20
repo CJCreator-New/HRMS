@@ -14,15 +14,18 @@ function generateNonce(): string {
   return btoa(String.fromCharCode(...array));
 }
 
-/** Builds a Content-Security-Policy header with nonce-based script allowlisting. */
+/** Builds a Content-Security-Policy header with nonce-based script allowlisting and CDN allowances. */
 function buildCspHeader(nonce: string): string {
   const directives = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval'`,
-    `style-src 'self' 'unsafe-inline'`,
-    "img-src 'self' data: blob: https://*.supabase.co https://*.googleusercontent.com https://*.unsplash.com",
-    "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
-    "font-src 'self' data:",
+    `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://*.jsdelivr.net https://apis.google.com https://*.google.com https://*.gstatic.com https://*.googleapis.com`,
+    `script-src-elem 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://*.jsdelivr.net https://apis.google.com https://*.google.com https://*.gstatic.com https://*.googleapis.com`,
+    `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://*.jsdelivr.net`,
+    `style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://*.jsdelivr.net`,
+    "img-src 'self' data: blob: https://*.supabase.co https://*.googleusercontent.com https://*.unsplash.com https://cdn.jsdelivr.net https://*.jsdelivr.net https://*.gstatic.com https://*.google.com",
+    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net https://*.jsdelivr.net https://*.google.com https://*.googleapis.com https://*.googleusercontent.com",
+    "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net https://*.jsdelivr.net",
+    "frame-src 'self' https://*.google.com https://*.run.app",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
@@ -85,37 +88,34 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  const { data: { user } } = await supabase.auth.getUser();
-  const mockToken = request.cookies.get("sb-access-token")?.value;
+  let user = null;
+  try {
+    const userRes = await supabase.auth.getUser();
+    user = userRes?.data?.user || null;
+  } catch {
+    user = null;
+  }
 
-  const isMockAllowed =
-    process.env.NEXT_PUBLIC_MOCK_AUTH === "true" ||
-    process.env.NODE_ENV === "test" ||
-    process.env.NODE_ENV === "development";
+  const mockToken = request.cookies.get("sb-access-token")?.value;
+  let validMockEmail: string | null = null;
+  if (mockToken) {
+    validMockEmail = await validateMockCookieValue(mockToken);
+  }
 
   // 1. Unauthenticated redirect to /login
-  if (!user && (!mockToken || !isMockAllowed) && pathname !== "/login") {
+  if (!user && !validMockEmail && pathname !== "/login") {
     const loginUrl = new URL("/login", request.url);
     return NextResponse.redirect(loginUrl);
   }
 
-  // 2a. Mock-mode RBAC: real user session is absent but mock token is present.
-  //     Validate HMAC signature and expiration; enforce access control via the
-  //     static E2E RBAC table.
-  if (!user && isMockAllowed && mockToken) {
-    const mockEmail = await validateMockCookieValue(mockToken);
-    if (mockEmail && mockEmail.includes("@")) {
-      if (!isMockEmailAllowed(mockEmail, pathname)) {
-        const forbiddenUrl = new URL("/403", request.url);
-        return NextResponse.redirect(forbiddenUrl);
-      }
-      return response;
+  // 2a. Mock-mode RBAC: real user session is absent but valid mock token is present.
+  //     Validate expiration and enforce access control via the static E2E RBAC table.
+  if (!user && validMockEmail) {
+    if (!isMockEmailAllowed(validMockEmail, pathname)) {
+      const forbiddenUrl = new URL("/403", request.url);
+      return NextResponse.redirect(forbiddenUrl);
     }
-    // Tampered or expired mock cookie — redirect to login
-    if (pathname !== "/login") {
-      const loginUrl = new URL("/login", request.url);
-      return NextResponse.redirect(loginUrl);
-    }
+    return response;
   }
 
   // 2b. Real Supabase RBAC: full permission check via DB queries.

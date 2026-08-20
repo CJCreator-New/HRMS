@@ -164,6 +164,8 @@ describe("createEmployeeAction", () => {
 describe("importEmployeesCsvAction", () => {
   beforeEach(() => {
     mocks.createClient.mockReset();
+    mocks.assertPermission.mockReset();
+    mocks.assertPermission.mockResolvedValue(null);
   });
 
   it("imports valid rows and skips invalid ones", async () => {

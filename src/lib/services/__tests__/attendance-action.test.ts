@@ -10,6 +10,8 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
 vi.mock("@/lib/auth/assertPermission", () => ({
   assertPermission: mocks.assertPermission,
   assertAnyPermission: mocks.assertAnyPermission,
+  assertCallerIdentity: vi.fn(async () => null),
+  getAuthenticatedCaller: vi.fn(async () => null),
 }));
 
 import { createFakeSupabase } from "./helpers/fake-supabase";

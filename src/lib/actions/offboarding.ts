@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { assertPermission } from "@/lib/auth/assertPermission";
+import { assertPermission, assertAnyPermission, assertCallerIdentity, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { computeLastWorkingDay, resolveFfApprovalOutcome } from "@/lib/services/offboarding-engine";
 import { validateRequestOrigin } from "@/lib/security";
 
@@ -14,17 +14,27 @@ export async function submitResignationAction(
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { error: csrfError.error };
 
+  // Permission assertion: employee can submit own resignation; HR/Manager can submit for employees
+  const permError = await assertAnyPermission(["separation.view", "separation.create", "offboarding.manage"]);
+  if (permError) return { error: permError.error };
+
+  const identityError = await assertCallerIdentity(employeeId, ["separation.create", "offboarding.manage"]);
+  if (identityError) return { error: identityError.error };
+
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  let currentEmpId = initiatedBy;
-  if (!currentEmpId && user) {
-    const { data: emp } = await supabase
-      .from("employees")
-      .select("id")
-      .eq("auth_user_id", user.id)
-      .single();
-    if (emp) currentEmpId = emp.id;
+  const caller = await getAuthenticatedCaller();
+  let currentEmpId = initiatedBy || caller?.employeeId;
+  if (!currentEmpId) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: emp } = await supabase
+        .from("employees")
+        .select("id")
+        .eq("auth_user_id", user.id)
+        .single();
+      if (emp) currentEmpId = emp.id;
+    }
   }
   const initiator = currentEmpId || employeeId;
 
@@ -65,7 +75,23 @@ export async function rescindResignationAction(separationId: string) {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { error: csrfError.error };
 
+  const permError = await assertAnyPermission(["separation.view", "separation.edit", "offboarding.manage"]);
+  if (permError) return { error: permError.error };
+
   const supabase = await createClient();
+
+  // Ensure caller is the employee who submitted or holds separation.edit
+  const { data: sep } = await supabase
+    .from("separation_records")
+    .select("employee_id, status")
+    .eq("id", separationId)
+    .single();
+
+  if (!sep) return { error: "Separation record not found" };
+
+  const identityError = await assertCallerIdentity(sep.employee_id, ["separation.edit", "offboarding.manage"]);
+  if (identityError) return { error: identityError.error };
+
   const { data, error } = await supabase
     .from("separation_records")
     .update({ status: "rescinded" })
@@ -140,15 +166,24 @@ export async function approveFfAction(separationId: string) {
   const ff = await getFfSettlementId(supabase, separationId);
   if (!ff) return { error: "No F&F settlement found for this separation." };
 
-  const { data: { user } } = await supabase.auth.getUser();
-  let approverId: string | null = null;
-  if (user) {
-    const { data: e } = await supabase
-      .from("employees")
-      .select("id")
-      .eq("auth_user_id", user.id)
-      .single();
-    approverId = e?.id || null;
+  const caller = await getAuthenticatedCaller();
+  let approverId: string | null = caller?.employeeId || null;
+
+  if (!approverId) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: e } = await supabase
+        .from("employees")
+        .select("id")
+        .eq("auth_user_id", user.id)
+        .single();
+      approverId = e?.id || null;
+    }
+  }
+
+  // Anti-self-approval guard: Separating employee cannot approve their own F&F settlement
+  if (approverId && ff.employee_id === approverId) {
+    return { error: "Self-approval of F&F settlement is not permitted." };
   }
 
   const { error: ffErr } = await supabase

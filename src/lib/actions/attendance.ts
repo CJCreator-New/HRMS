@@ -1,30 +1,42 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { assertPermission, assertAnyPermission } from "@/lib/auth/assertPermission";
+import { assertPermission, assertAnyPermission, assertCallerIdentity, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 
 export async function punchCheckInAction(employeeId?: string): Promise<{ success: boolean; error?: string; record?: any }> {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { success: false, error: csrfError.error };
 
-  const permError = await assertAnyPermission(["attendance.mark.self", "attendance.mark.team"]);
+  const permError = await assertAnyPermission(["attendance.mark.self", "attendance.mark.team", "attendance.view.all"]);
   if (permError) return { success: false, error: permError.error };
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const caller = await getAuthenticatedCaller();
   let empId = employeeId;
-  if (!empId && user) {
-    const { data: emp } = await supabase
-      .from("employees")
-      .select("id")
-      .eq("auth_user_id", user.id)
-      .single();
-    if (emp) empId = emp.id;
+  if (!empId) {
+    empId = caller?.employeeId || undefined;
+  }
+
+  if (!empId) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: emp } = await supabase
+        .from("employees")
+        .select("id")
+        .eq("auth_user_id", user.id)
+        .single();
+      if (emp) empId = emp.id;
+    }
   }
 
   if (!empId) return { success: false, error: "Employee record not found for check-in" };
 
+  // Validate identity if punching for a specific target employee
+  const identityError = await assertCallerIdentity(empId, ["attendance.mark.team", "attendance.view.all"]);
+  if (identityError) return { success: false, error: identityError.error };
+
+  const supabase = await createClient();
   const today = new Date().toISOString().split("T")[0];
   const nowIso = new Date().toISOString();
 
@@ -54,10 +66,23 @@ export async function punchCheckOutAction(attendanceRecordId: string): Promise<{
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { success: false, error: csrfError.error };
 
-  const permError = await assertAnyPermission(["attendance.mark.self", "attendance.mark.team"]);
+  const permError = await assertAnyPermission(["attendance.mark.self", "attendance.mark.team", "attendance.view.all"]);
   if (permError) return { success: false, error: permError.error };
 
   const supabase = await createClient();
+
+  // Validate that the attendance record belongs to the caller or caller has team/admin mark permission
+  const { data: existingRecord } = await supabase
+    .from("attendance_records")
+    .select("employee_id")
+    .eq("id", attendanceRecordId)
+    .single();
+
+  if (existingRecord?.employee_id) {
+    const identityError = await assertCallerIdentity(existingRecord.employee_id, ["attendance.mark.team", "attendance.view.all"]);
+    if (identityError) return { success: false, error: identityError.error };
+  }
+
   const nowIso = new Date().toISOString();
 
   const { data: record, error } = await supabase
@@ -94,6 +119,9 @@ export async function submitAttendanceCorrectionAction(
   const permError = await assertPermission("attendance.correct.self");
   if (permError) return permError;
 
+  const identityError = await assertCallerIdentity(employeeId, ["attendance.correct.override"]);
+  if (identityError) return identityError;
+
   reason = sanitizeInput(reason);
 
   const supabase = await createClient();
@@ -117,32 +145,40 @@ export async function submitAttendanceCorrectionAction(
 export async function getAttendanceAction() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { records: [], corrections: [] };
+  let empId: string | null | undefined = null;
 
-  const { data: emp } = await supabase
-    .from("employees")
-    .select("id")
-    .eq("auth_user_id", user.id)
-    .single();
+  if (user) {
+    const { data: emp } = await supabase
+      .from("employees")
+      .select("id")
+      .eq("auth_user_id", user.id)
+      .single();
+    if (emp) empId = emp.id;
+  }
 
-  if (!emp) return { records: [], corrections: [] };
+  if (!empId) {
+    const caller = await getAuthenticatedCaller();
+    empId = caller?.employeeId;
+  }
+
+  if (!empId) return { records: [], corrections: [] };
 
   const [{ data: records }, { data: corrections }] = await Promise.all([
     supabase
       .from("attendance_records")
       .select("*")
-      .eq("employee_id", emp.id)
+      .eq("employee_id", empId)
       .order("attendance_date", { ascending: false })
       .limit(30),
     supabase
       .from("attendance_corrections")
       .select("*, employees!employee_id(full_name)")
-      .eq("employee_id", emp.id)
+      .eq("employee_id", empId)
       .order("created_at", { ascending: false }),
   ]);
 
   return {
-    employeeId: emp.id,
+    employeeId: empId,
     records: records || [],
     corrections: corrections || [],
   };
@@ -158,23 +194,42 @@ export async function approveAttendanceCorrectionAction(
   const permError = await assertAnyPermission(["attendance.correct.approve", "attendance.correct.override"]);
   if (permError) return permError;
 
+  const caller = await getAuthenticatedCaller();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Unauthenticated" };
 
-  const { data: emp } = await supabase
-    .from("employees")
-    .select("id")
-    .eq("auth_user_id", user.id)
+  // Fetch correction to enforce anti-self-approval
+  const { data: correction } = await supabase
+    .from("attendance_corrections")
+    .select("employee_id")
+    .eq("id", correctionId)
     .single();
 
-  if (!emp) return { error: "Employee record not found" };
+  let deciderId = caller?.employeeId;
+  if (!deciderId) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user && !caller) return { error: "Unauthenticated" };
+    if (user) {
+      const { data: emp } = await supabase
+        .from("employees")
+        .select("id")
+        .eq("auth_user_id", user.id)
+        .single();
+      if (emp) deciderId = emp.id;
+    }
+  }
+
+  if (!deciderId) return { error: "Employee record not found" };
+
+  // Anti-self-approval guard
+  if (correction?.employee_id && correction.employee_id === deciderId) {
+    return { error: "Self-approval of attendance corrections is not permitted." };
+  }
 
   const { error } = await supabase
     .from("attendance_corrections")
     .update({
       status: decision,
-      decided_by: emp.id,
+      decided_by: deciderId,
       decided_at: new Date().toISOString(),
     })
     .eq("id", correctionId);

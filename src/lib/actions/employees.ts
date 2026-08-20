@@ -123,6 +123,9 @@ export async function importEmployeesCsvAction(rows: Array<{ code: string; name:
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { success: false, imported: 0, skipped: 0, errors: [csrfError.error] };
 
+  const permError = await assertPermission("employee.import");
+  if (permError) return { success: false, imported: 0, skipped: 0, errors: [permError.error] };
+
   const rateCheck = await checkActionRateLimit("admin", "import_employees_csv", 10, 3600000);
   if (!rateCheck.allowed) {
     const mins = Math.ceil(rateCheck.retryAfterMs / 60000);

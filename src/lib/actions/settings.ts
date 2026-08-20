@@ -5,6 +5,9 @@ import { assertPermission } from "@/lib/auth/assertPermission";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 
 export async function getCompanySettingsAction() {
+  const permError = await assertPermission("settings.manage");
+  if (permError) return { error: permError.error };
+
   const supabase = await createClient();
   const { data, error } = await supabase.from("company_settings").select("*").limit(1).single();
   if (error) return { error: error.message };

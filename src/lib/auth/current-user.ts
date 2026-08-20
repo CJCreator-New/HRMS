@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { resolveMockRolesFromEmail } from "@/lib/services/mock-rbac";
+import { resolveMockRolesFromEmail, resolveMockEmployeeIdFromEmail } from "@/lib/services/mock-rbac";
 import { cookies } from "next/headers";
 import { validateMockCookieValue } from "@/lib/auth/mock-cookie";
 
@@ -36,7 +36,8 @@ export async function getCurrentUserRoles(): Promise<CurrentUserInfo> {
       const mockEmail = await validateMockCookieValue(rawCookie);
       if (mockEmail) {
         const mockResult = resolveMockRolesFromEmail(mockEmail);
-        return { ...mockResult, userName: mockEmail.split("@")[0], employeeId: null };
+        const employeeId = resolveMockEmployeeIdFromEmail(mockEmail);
+        return { ...mockResult, userName: mockEmail.split("@")[0], employeeId };
       }
       // Tampered or expired mock cookie — fall through to unauthenticated
     }

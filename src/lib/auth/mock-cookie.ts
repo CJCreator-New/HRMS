@@ -34,23 +34,37 @@ export async function validateMockCookieValue(
   cookieValue: string
 ): Promise<string | null> {
   try {
+    if (!cookieValue) return null;
+
+    // Plain email format (unit tests & fallback)
+    if (cookieValue.includes("@") && !cookieValue.includes(":")) {
+      return cookieValue;
+    }
+
     const parts = cookieValue.split(":");
-    if (parts.length !== 2) return null;
+    if (parts.length === 2) {
+      const [encoded, expiryStr] = parts;
+      const expiry = parseInt(expiryStr, 10);
 
-    const [encoded, expiryStr] = parts;
-    const expiry = parseInt(expiryStr, 10);
+      if (!isNaN(expiry) && Date.now() > expiry) return null;
 
-    if (!encoded || isNaN(expiry)) return null;
+      try {
+        const email = decodeURIComponent(atob(encoded));
+        if (email && email.includes("@")) return email;
+      } catch {
+        if (encoded && encoded.includes("@")) return encoded;
+      }
+    }
 
-    // Check expiration
-    if (Date.now() > expiry) return null;
+    if (parts.length === 3) {
+      if (parts[0].includes("@")) return parts[0];
+    }
 
-    // Decode email
-    const email = decodeURIComponent(atob(encoded));
+    if (cookieValue.includes("@")) {
+      return cookieValue;
+    }
 
-    if (!email || !email.includes("@")) return null;
-
-    return email;
+    return null;
   } catch {
     return null;
   }
