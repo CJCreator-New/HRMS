@@ -14,20 +14,18 @@ function generateNonce(): string {
   return btoa(String.fromCharCode(...array));
 }
 
-/** Builds a strict Content-Security-Policy header with nonce-based script allowlisting. */
+/** Builds a Content-Security-Policy header with nonce-based script allowlisting. */
 function buildCspHeader(nonce: string): string {
   const directives = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}'`,
+    `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval'`,
     `style-src 'self' 'unsafe-inline'`,
-    "img-src 'self' data: blob: https://*.supabase.co",
+    "img-src 'self' data: blob: https://*.supabase.co https://*.googleusercontent.com https://*.unsplash.com",
     "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
     "font-src 'self' data:",
     "object-src 'none'",
-    "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    "upgrade-insecure-requests",
   ];
   return directives.join("; ");
 }

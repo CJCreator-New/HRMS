@@ -1,0 +1,6 @@
+{
+  "name": "HRMS",
+  "description": "Enterprise Human Resource Management System for employee lifecycle, attendance, leave, payroll, and settlements.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
