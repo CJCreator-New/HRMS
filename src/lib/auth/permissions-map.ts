@@ -34,20 +34,28 @@ export const ROLE_PERMISSIONS_MAP: Record<RoleCode, string[]> = {
     "employee.view.all", "employee.create", "employee.edit", "employee.import", "employee.deactivate",
     "attendance.view.all", "attendance.correct.override", "leave.view.all", "leave.approve.hr",
     "leave.cancel.approve", "leave.manage_types", "leave.encash.approve", "salary.view.all", "salary.edit",
-    "statutory.view", "statutory.edit", "reimbursement.approve", "reimbursement.view.all", "separation.view",
+    "salary.bulk_assign", "statutory.view", "statutory.edit", "statutory.bulk_upsert", "department.bulk_assign",
+    "calendar.bulk_assign", "reimbursement.approve", "reimbursement.view.all", "separation.view",
     "separation.create", "separation.edit", "offboarding.manage", "ff.create", "ff.view", "ff.approve",
     "compoff.credit.manual", "compoff.revoke", "attachment.upload", "attachment.view", "reports.export",
     "audit.view", "settings.manage", "job.view", "job.rerun",
   ],
   payroll_admin: [
-    "salary.view.all", "salary.edit", "payroll.view", "payroll.run", "payroll.reopen",
+    "salary.view.all", "salary.edit", "salary.bulk_assign", "payroll.view", "payroll.run", "payroll.reopen",
     "payroll.finalize", "payroll.publish", "payroll.schedule", "statutory.view", "statutory.edit",
-    "ff.view", "reports.export", "employee.view.all", "attendance.view.all",
+    "statutory.bulk_upsert", "ff.view", "reports.export", "employee.view.all", "attendance.view.all",
     "leave.view.all", "reimbursement.view.all", "attachment.view",
   ],
   system_admin: [
     "settings.manage", "audit.view", "job.view", "job.rerun", "employee.view.all",
+    "department.bulk_assign", "calendar.bulk_assign",
   ],
+};
+
+export const DORMANT_ROLE_PERMISSIONS_MAP: Record<string, string[]> = {
+  statutory_admin: ["statutory.view", "statutory.edit", "statutory.bulk_upsert"],
+  finance_admin: ["salary.view.all", "salary.bulk_assign", "payroll.view", "statutory.view"],
+  it_admin: ["settings.manage", "audit.view", "job.view", "job.rerun"],
 };
 
 /**
@@ -61,7 +69,11 @@ export function permissionsForRoles(roles: string[]): string[] {
     return Array.from(new Set(Object.values(ROLE_PERMISSIONS_MAP).flat()));
   }
   return Array.from(
-    new Set(normalized.flatMap((role) => ROLE_PERMISSIONS_MAP[role] || []))
+    new Set(
+      normalized.flatMap(
+        (role) => ROLE_PERMISSIONS_MAP[role] || DORMANT_ROLE_PERMISSIONS_MAP[role] || []
+      )
+    )
   );
 }
 

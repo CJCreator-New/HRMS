@@ -233,9 +233,9 @@ export function PayrollWorkspace({ initialPeriods, initialPayslips }: PayrollWor
                 </p>
                 <p className="text-[11px] text-amber-700 mt-0.5">EMP-004 (Suspended), EMP-012 (Missing Statutory Profile).</p>
               </div>
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="font-bold text-blue-900">Eligibility Rule Check</p>
-                <p className="text-[11px] text-blue-700 mt-0.5">Evaluated binary is_eligible flag prior to payable unit calculation.</p>
+              <div className="p-3 bg-primary-50 border border-primary-200 rounded-lg">
+                <p className="font-bold text-primary-900">Eligibility Rule Check</p>
+                <p className="text-[11px] text-primary-700 mt-0.5">Evaluated binary is_eligible flag prior to payable unit calculation.</p>
               </div>
             </div>
           </div>

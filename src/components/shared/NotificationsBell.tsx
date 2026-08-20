@@ -35,9 +35,40 @@ export function NotificationsBell() {
 
   useEffect(() => {
     load();
-    // Poll every 60s for new notifications
+    // Poll every 60s as a background fallback
     const interval = setInterval(load, 60000);
-    return () => clearInterval(interval);
+
+    // Supabase real-time channel subscription
+    let channel: any = null;
+    try {
+      const { createClient } = require("@/lib/supabase/client");
+      const supabase = createClient();
+      channel = supabase
+        .channel("inbox_notifications_realtime")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "inbox_notifications" },
+          () => {
+            load();
+          }
+        )
+        .subscribe();
+    } catch {
+      // In offline / mock / unit test mode, fallback cleanly to interval polling
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (channel) {
+        try {
+          const { createClient } = require("@/lib/supabase/client");
+          const supabase = createClient();
+          supabase.removeChannel(channel);
+        } catch {
+          // ignore
+        }
+      }
+    };
   }, []);
 
   // Close on outside click
@@ -92,7 +123,7 @@ export function NotificationsBell() {
         onClick={() => setOpen(!open)}
         aria-label={`Notifications (${unread} unread)`}
         aria-expanded={open}
-        className="relative p-2 text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition"
+        className="relative p-2 text-ink-muted hover:text-ink rounded-lg hover:bg-surface-muted transition"
         title={`Notifications (${unread} unread)`}
       >
         <Bell className="w-5 h-5" aria-hidden="true" />
@@ -107,32 +138,32 @@ export function NotificationsBell() {
         <div
           role="region"
           aria-label="Notifications panel"
-          className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-200 z-50 overflow-hidden"
+          className="absolute right-0 top-full mt-2 w-80 bg-surface rounded-xl shadow-xl border border-line z-dropdown overflow-hidden"
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-            <p className="text-xs font-bold text-gray-900">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-line">
+            <p className="text-xs font-bold text-ink">
               Notifications {unread > 0 && <span className="ml-1 text-red-600">({unread} new)</span>}
             </p>
             <div className="flex items-center gap-2">
               {unread > 0 && (
                 <button
                   onClick={handleMarkAllRead}
-                  className="text-[10px] text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1"
+                  className="text-[10px] text-primary-600 hover:text-primary-800 font-semibold flex items-center gap-1"
                 >
                   <CheckCheck className="w-3 h-3" /> Mark all read
                 </button>
               )}
               <button onClick={() => setOpen(false)} aria-label="Close notifications panel">
-                <X className="w-3.5 h-3.5 text-gray-400 hover:text-gray-600" />
+                <X className="w-3.5 h-3.5 text-ink-muted hover:text-ink" />
               </button>
             </div>
           </div>
 
           {/* List */}
-          <div className="max-h-72 overflow-y-auto divide-y divide-gray-50">
+          <div className="max-h-72 overflow-y-auto divide-y divide-line">
             {notifications.length === 0 ? (
-              <div className="py-10 text-center text-xs text-gray-400">No notifications yet.</div>
+              <div className="py-10 text-center text-xs text-ink-faint">No notifications yet.</div>
             ) : (
               notifications.map((n) => {
                 const url = notificationActionUrl(n);
@@ -142,24 +173,24 @@ export function NotificationsBell() {
                     type="button"
                     onClick={() => handleOpen(n)}
                     className={`w-full text-left flex items-start gap-3 px-4 py-3 transition ${
-                      !n.is_read ? "bg-blue-50/50" : "hover:bg-gray-50"
+                      !n.is_read ? "bg-primary-50/50" : "hover:bg-surface-muted"
                     }`}
                   >
                     <span
                       aria-hidden="true"
                       className={`mt-1 w-2 h-2 rounded-full shrink-0 ${
-                        !n.is_read ? "bg-blue-500" : "bg-transparent"
+                        !n.is_read ? "bg-primary-500" : "bg-transparent"
                       }`}
                     />
                     <span className="flex-1 min-w-0">
-                      <span className="block text-xs font-semibold text-gray-900 truncate">{n.title}</span>
-                      <span className="block text-[11px] text-gray-500 line-clamp-2">{n.body}</span>
-                      <span className="block text-[10px] text-gray-400 mt-1">{formatTime(n.created_at)}</span>
+                      <span className="block text-xs font-semibold text-ink truncate">{n.title}</span>
+                      <span className="block text-[11px] text-ink-secondary line-clamp-2">{n.body}</span>
+                      <span className="block text-[10px] text-ink-faint mt-1">{formatTime(n.created_at)}</span>
                     </span>
                     {url && (
                       <span
                         aria-hidden="true"
-                        className="shrink-0 mt-0.5 p-1 text-blue-500"
+                        className="shrink-0 mt-0.5 p-1 text-primary-500"
                         title="Open linked record"
                       >
                         <ArrowUpRight className="w-3 h-3" />

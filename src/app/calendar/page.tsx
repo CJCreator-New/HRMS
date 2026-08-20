@@ -1,9 +1,13 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Calendar, Plus, CheckCircle, Clock, Gift, Shield } from "lucide-react";
+import { Calendar, Plus, CheckCircle, Clock, Gift, Shield, Upload } from "lucide-react";
 import { getCalendarDataAction } from "@/lib/actions/data";
-import { createHolidayAction, selectOptionalHolidayAction } from "@/lib/actions/calendar";
+import {
+  createHolidayAction,
+  selectOptionalHolidayAction,
+  bulkAssignCalendarTemplate,
+} from "@/lib/actions/calendar";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { DataTable } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -11,6 +15,8 @@ import { PageLoading } from "@/components/shared/PageLoading";
 import { useToast } from "@/components/shared/Toast";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { formatDateIndian } from "@/lib/utils/formatters";
+import { BatchUploadDrawer } from "@/components/shared/batch-import/BatchUploadDrawer";
+import { CalendarAssignmentBatchSchema } from "@/lib/batch-import/schemas";
 
 interface Holiday {
   id: string;
@@ -47,6 +53,7 @@ export default function CalendarManagementPage() {
   const [loading, setLoading] = useState(true);
   const [defaultTemplateId, setDefaultTemplateId] = useState("");
   const [selectedOptional, setSelectedOptional] = useState<string[]>([]);
+  const [showBatchDrawer, setShowBatchDrawer] = useState(false);
   const { toast } = useToast();
 
   // Holiday Add Form State
@@ -54,39 +61,40 @@ export default function CalendarManagementPage() {
   const [newHolDate, setNewHolDate] = useState("");
   const [newHolIsOpt, setNewHolIsOpt] = useState(false);
 
+  const loadCalendarData = async () => {
+    setLoading(true);
+    const res = await getCalendarDataAction();
+    const rawHols: any[] = (res as any).holidays || [];
+    setHolidays(
+      rawHols.length > 0
+        ? rawHols.map((h: any) => ({
+            id: h.id,
+            name: h.name,
+            date: h.holiday_date,
+            is_optional: h.is_optional,
+          }))
+        : SAMPLE_HOLIDAYS
+    );
+    const rawTmpls: any[] = (res as any).templates || [];
+    setTemplates(
+      rawTmpls.map((t: any) => ({
+        id: t.id,
+        code: t.code,
+        name: t.name,
+        standard_working_days: t.working_days_description || "Monday to Friday",
+        alt_saturday_rule: t.alt_saturday_rule || "none",
+        optional_allowed: t.total_optional_holidays_allowed || 2,
+        deadline_date: t.optional_selection_deadline_date || "",
+        is_default: t.is_default || false,
+      }))
+    );
+    setDefaultTemplateId((res as any).defaultTemplateId || "");
+    setSelectedOptional((res as any).selectedOptional || []);
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      const res = await getCalendarDataAction();
-      const rawHols: any[] = (res as any).holidays || [];
-      setHolidays(
-        rawHols.length > 0
-          ? rawHols.map((h: any) => ({
-              id: h.id,
-              name: h.name,
-              date: h.holiday_date,
-              is_optional: h.is_optional,
-            }))
-          : SAMPLE_HOLIDAYS
-      );
-      const rawTmpls: any[] = (res as any).templates || [];
-      setTemplates(
-        rawTmpls.map((t: any) => ({
-          id: t.id,
-          code: t.code,
-          name: t.name,
-          standard_working_days: t.working_days_description || "Monday to Friday",
-          alt_saturday_rule: t.alt_saturday_rule || "none",
-          optional_allowed: t.total_optional_holidays_allowed || 2,
-          deadline_date: t.optional_selection_deadline_date || "",
-          is_default: t.is_default || false,
-        }))
-      );
-      setDefaultTemplateId((res as any).defaultTemplateId || "");
-      setSelectedOptional((res as any).selectedOptional || []);
-      setLoading(false);
-    };
-    load();
+    loadCalendarData();
   }, []);
 
   const handleAddHoliday = async (e: React.FormEvent) => {
@@ -135,12 +143,20 @@ export default function CalendarManagementPage() {
         title="Work Calendar Templates & Holiday Selection"
         description="Manage multi-template work calendars, compulsory/optional holiday lists, and employee optional holiday selections."
         actions={
-          <button
-            onClick={handleSimulateAutoAllocation}
-            className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-semibold rounded-lg border border-amber-200 transition flex items-center gap-1.5"
-          >
-            <Clock className="w-4 h-4 text-amber-600" aria-hidden="true" /> Simulate Deadline Auto-Allocation
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowBatchDrawer(true)}
+              className="px-3.5 py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold rounded-lg transition flex items-center gap-1.5 shadow-xs"
+            >
+              <Upload className="w-4 h-4" /> Batch Assign Calendar (.xlsx / .csv)
+            </button>
+            <button
+              onClick={handleSimulateAutoAllocation}
+              className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-semibold rounded-lg border border-amber-200 transition flex items-center gap-1.5"
+            >
+              <Clock className="w-4 h-4 text-amber-600" aria-hidden="true" /> Simulate Deadline Auto-Allocation
+            </button>
+          </div>
         }
       />
 
@@ -295,6 +311,18 @@ export default function CalendarManagementPage() {
           </div>
         </>
       )}
+
+      {/* Shared Batch Upload Drawer */}
+      <BatchUploadDrawer
+        isOpen={showBatchDrawer}
+        onClose={() => setShowBatchDrawer(false)}
+        schema={CalendarAssignmentBatchSchema}
+        onCommit={bulkAssignCalendarTemplate}
+        onSuccess={async () => {
+          await loadCalendarData();
+          toast("Calendar template assignments updated successfully from batch upload.");
+        }}
+      />
     </div>
   );
 }

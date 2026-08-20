@@ -1,186 +1,141 @@
 "use client";
 
 import React, { useState } from "react";
-import { FileSpreadsheet, Upload, CheckCircle2, AlertCircle, ArrowLeft } from "lucide-react";
+import { FileSpreadsheet, Upload, ArrowLeft, Users, ShieldCheck, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
-import { importEmployeesCsvAction } from "@/lib/actions/employees";
-
-interface ImportRowResult {
-  row_number: number;
-  status: "success" | "failed";
-  error_message?: string;
-  data: {
-    code: string;
-    name: string;
-    email: string;
-    doj: string;
-  };
-}
+import { importEmployeesAction } from "@/lib/actions/employees";
+import { PageHeader } from "@/components/shared/PageHeader";
+import { TemplateDownload } from "@/components/shared/batch-import/TemplateDownload";
+import { BatchUploadDrawer } from "@/components/shared/batch-import/BatchUploadDrawer";
+import { EmployeeImportBatchSchema } from "@/lib/batch-import/schemas";
+import { useToast } from "@/components/shared/Toast";
 
 export default function BulkEmployeeImportPage() {
-  const [file, setFile] = useState<File | null>(null);
-  const [processing, setProcessing] = useState(false);
-  const [batchResult, setBatchResult] = useState<{
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [lastBatchSummary, setLastBatchSummary] = useState<{
     total: number;
     success: number;
     failed: number;
-    rows: ImportRowResult[];
   } | null>(null);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-      setBatchResult(null);
-    }
-  };
-
-  const handleUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!file) return;
-
-    setProcessing(true);
-
-    const text = await file.text();
-    const lines = text.split("\n").filter((l) => l.trim().length > 0);
-    const parsedRows = lines.slice(1).map((line) => {
-      const [code, name, email, doj] = line.split(",").map((s) => s.trim());
-      return { code, name, email, doj };
-    });
-
-    const res = await importEmployeesCsvAction(parsedRows.length > 0 ? parsedRows : [
-      { code: "EMP-101", name: "Ananya Roy", email: "ananya@company.com", doj: "2026-08-01" },
-      { code: "EMP-102", name: "Karan Johar", email: "karan@company.com", doj: "2026-08-01" },
-    ]);
-
-    setProcessing(false);
-    setBatchResult({
-      total: parsedRows.length || 2,
-      success: res.imported || 2,
-      failed: res.skipped || 0,
-      rows: (parsedRows.length > 0 ? parsedRows : [
-        { code: "EMP-101", name: "Ananya Roy", email: "ananya@company.com", doj: "2026-08-01" },
-        { code: "EMP-102", name: "Karan Johar", email: "karan@company.com", doj: "2026-08-01" },
-      ]).map((r, idx) => ({
-        row_number: idx + 1,
-        status: "success",
-        data: { code: r.code, name: r.name, email: r.email, doj: r.doj || "" },
-      })),
-    });
-  };
+  const { toast } = useToast();
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <Link
           href="/employees"
-          className="inline-flex items-center gap-1 text-xs font-semibold text-gray-600 hover:text-gray-900"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink-secondary hover:text-ink transition"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Employee Directory
         </Link>
       </div>
 
-      <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex items-start justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            <FileSpreadsheet className="w-5 h-5 text-emerald-600" /> Bulk Employee CSV Import
-          </h2>
-          <p className="text-xs text-gray-600 mt-1">
-            Upload CSV files to batch provision employee records with line-item validation error reporting.
+      <PageHeader
+        icon={<FileSpreadsheet className="w-5 h-5 text-emerald-600" aria-hidden="true" />}
+        title="Bulk Employee Import (.xlsx / .csv)"
+        description="Provision new employee accounts and profiles in batch with automatic temporary credentials, invited status, and validation error reporting."
+        actions={
+          <div className="flex items-center gap-2">
+            <TemplateDownload schema={EmployeeImportBatchSchema} />
+            <button
+              onClick={() => setDrawerOpen(true)}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition flex items-center gap-1.5 shadow-xs"
+            >
+              <Upload className="w-4 h-4" /> Upload Employee Batch
+            </button>
+          </div>
+        }
+      />
+
+      {/* Overview & Guidelines Card */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-surface p-4 rounded-xl border border-line shadow-card space-y-2">
+          <div className="flex items-center gap-2 text-emerald-600 font-semibold text-xs">
+            <Users className="w-4 h-4" /> Account Provisioning
+          </div>
+          <p className="text-xs text-ink-secondary">
+            Creates auth credentials and sets status to <span className="font-semibold text-ink">invited</span> with mandatory first-time password reset.
+          </p>
+        </div>
+
+        <div className="bg-surface p-4 rounded-xl border border-line shadow-card space-y-2">
+          <div className="flex items-center gap-2 text-primary-600 font-semibold text-xs">
+            <ShieldCheck className="w-4 h-4" /> Two-Step Verification
+          </div>
+          <p className="text-xs text-ink-secondary">
+            Pre-flight parser checks required fields, email syntax, unique codes, and date formats before any data is committed.
+          </p>
+        </div>
+
+        <div className="bg-surface p-4 rounded-xl border border-line shadow-card space-y-2">
+          <div className="flex items-center gap-2 text-indigo-600 font-semibold text-xs">
+            <FileSpreadsheet className="w-4 h-4" /> Dual File Format
+          </div>
+          <p className="text-xs text-ink-secondary">
+            Supports both modern <span className="font-mono font-bold text-ink">.xlsx</span> (with embedded instruction guides) and raw <span className="font-mono font-bold text-ink">.csv</span> files.
           </p>
         </div>
       </div>
 
-      <form onSubmit={handleUpload} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
-        <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-blue-500 transition">
-          <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-          <p className="text-sm font-semibold text-gray-700">Select or Drag CSV File Here</p>
-          <p className="text-xs text-gray-500 mt-1">Format: employee_code, full_name, email, date_of_joining</p>
-
-          <input
-            type="file"
-            accept=".csv"
-            onChange={handleFileChange}
-            className="mt-4 block mx-auto text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-          />
+      {/* Main Upload Trigger Card */}
+      <div className="bg-surface p-8 rounded-xl border border-line shadow-card text-center space-y-4">
+        <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto border border-emerald-100">
+          <Upload className="w-8 h-8" />
         </div>
+        <div className="max-w-md mx-auto space-y-1">
+          <h3 className="text-base font-bold text-ink">Ready to import employee data?</h3>
+          <p className="text-xs text-ink-secondary">
+            Download the official template, fill in your employee records, and open the batch upload drawer to preview and validate your rows.
+          </p>
+        </div>
+        <div className="flex items-center justify-center gap-3 pt-2">
+          <TemplateDownload schema={EmployeeImportBatchSchema} />
+          <button
+            onClick={() => setDrawerOpen(true)}
+            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition flex items-center gap-2 shadow-xs"
+          >
+            <Upload className="w-4 h-4" /> Open Batch Upload Drawer
+          </button>
+        </div>
+      </div>
 
-        {file && (
-          <div className="flex items-center justify-between bg-blue-50 p-3 rounded-lg border border-blue-100 text-xs">
-            <span className="font-semibold text-blue-900">Selected File: {file.name}</span>
-            <button
-              type="submit"
-              disabled={processing}
-              className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
-            >
-              {processing ? "Processing Import Batch..." : "Start Batch Import"}
-            </button>
-          </div>
-        )}
-      </form>
-
-      {/* Results Dashboard */}
-      {batchResult && (
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
-          <div className="flex items-center justify-between border-b border-gray-200 pb-4">
-            <h3 className="text-base font-bold text-gray-900">Import Batch Execution Summary</h3>
-            <div className="flex items-center gap-3 text-xs font-semibold">
-              <span className="px-2.5 py-1 bg-gray-100 text-gray-800 rounded">
-                Total: {batchResult.total}
+      {/* Batch Result Summary if available */}
+      {lastBatchSummary && (
+        <div className="bg-surface p-5 rounded-xl border border-line shadow-card space-y-2">
+          <h4 className="text-xs font-bold uppercase text-ink-secondary tracking-wider flex items-center gap-1.5">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Recent Batch Import Summary
+          </h4>
+          <div className="flex items-center gap-3 text-xs font-semibold pt-1">
+            <span className="px-2.5 py-1 bg-surface-muted text-ink-secondary rounded border border-line">
+              Total Processed: {lastBatchSummary.total}
+            </span>
+            <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded border border-emerald-200">
+              Successfully Imported: {lastBatchSummary.success}
+            </span>
+            {lastBatchSummary.failed > 0 && (
+              <span className="px-2.5 py-1 bg-red-100 text-red-800 rounded border border-red-200">
+                Failed / Skipped: {lastBatchSummary.failed}
               </span>
-              <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Success: {batchResult.success}
-              </span>
-              <span className="px-2.5 py-1 bg-red-100 text-red-800 rounded flex items-center gap-1">
-                <AlertCircle className="w-3.5 h-3.5" /> Failed: {batchResult.failed}
-              </span>
-            </div>
-          </div>
-
-          <div className="overflow-hidden rounded-lg border border-gray-200">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 font-bold uppercase text-gray-600 text-[11px]">
-                  <th className="px-4 py-2.5">Row</th>
-                  <th className="px-4 py-2.5">Employee Code</th>
-                  <th className="px-4 py-2.5">Name & Email</th>
-                  <th className="px-4 py-2.5">Status</th>
-                  <th className="px-4 py-2.5">Details</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {batchResult.rows.map((r) => (
-                  <tr key={r.row_number} className="hover:bg-gray-50/50">
-                    <td className="px-4 py-3 font-semibold text-gray-700">#{r.row_number}</td>
-                    <td className="px-4 py-3 font-mono text-gray-900">{r.data.code}</td>
-                    <td className="px-4 py-3">
-                      <p className="font-semibold text-gray-900">{r.data.name}</p>
-                      <p className="text-gray-500">{r.data.email}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                          r.status === "success"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-red-100 text-red-800"
-                        }`}
-                      >
-                        {r.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {r.status === "failed" ? (
-                        <span className="text-red-600 font-semibold">{r.error_message}</span>
-                      ) : (
-                        <span className="text-emerald-700">Imported as `invited`</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            )}
           </div>
         </div>
       )}
+
+      {/* Shared Batch Upload Drawer */}
+      <BatchUploadDrawer
+        isOpen={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        schema={EmployeeImportBatchSchema}
+        onCommit={importEmployeesAction}
+        onSuccess={async (res) => {
+          setLastBatchSummary({
+            total: res.total,
+            success: res.successCount,
+            failed: res.errorCount,
+          });
+          toast(`Successfully imported ${res.successCount} employee record(s).`);
+        }}
+      />
     </div>
   );
 }

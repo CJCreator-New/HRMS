@@ -176,3 +176,79 @@ describe("requestCompOffAction", () => {
     });
   });
 });
+
+describe("creditCompOff & revokeCompOff (C15)", () => {
+  beforeEach(() => {
+    mocks.createClient.mockReset();
+    mocks.assertPermission.mockReset();
+    mocks.assertAnyPermission.mockReset();
+    mocks.assertAnyPermission.mockResolvedValue(null);
+  });
+
+  it("manually credits comp-off with approved status and 90-day expiry", async () => {
+    const writes: Array<{ table: string; payload: any }> = [];
+    const fake = createFakeSupabase({
+      respond: (state) => {
+        if (state.table === "comp_off_grants" && state.method === "insert") {
+          writes.push({ table: state.table, payload: state.payload });
+          return { data: { id: "grant-manual-1", ...(state.payload as object) }, error: null };
+        }
+        return { data: null, error: null };
+      },
+    });
+    mocks.createClient.mockReturnValue(fake);
+
+    const { creditCompOff } = await import("@/lib/actions/leave");
+    const res = await creditCompOff("emp-1", "2026-08-10", 1.5, "Weekend production release support");
+
+    expect(res.success).toBe(true);
+    expect(writes[0].payload).toMatchObject({
+      employee_id: "emp-1",
+      worked_date: "2026-08-10",
+      days_granted: 1.5,
+      status: "approved",
+    });
+  });
+
+  it("revokes an active comp-off grant", async () => {
+    const updates: Array<{ table: string; payload: any }> = [];
+    const fake = createFakeSupabase({
+      respond: (state) => {
+        if (state.table === "comp_off_grants" && state.method === "select") {
+          return { data: { id: "grant-1", is_used: false, status: "approved" }, error: null };
+        }
+        if (state.table === "comp_off_grants" && state.method === "update") {
+          updates.push({ table: state.table, payload: state.payload });
+          return { data: { id: "grant-1", status: "rejected" }, error: null };
+        }
+        return { data: null, error: null };
+      },
+    });
+    mocks.createClient.mockReturnValue(fake);
+
+    const { revokeCompOff } = await import("@/lib/actions/leave");
+    const res = await revokeCompOff("grant-1", "Granted in error");
+
+    expect(res.success).toBe(true);
+    expect(updates[0].payload.status).toBe("rejected");
+  });
+
+  it("blocks revoking an already-used comp-off grant", async () => {
+    const fake = createFakeSupabase({
+      respond: (state) => {
+        if (state.table === "comp_off_grants" && state.method === "select") {
+          return { data: { id: "grant-used", is_used: true, status: "approved" }, error: null };
+        }
+        return { data: null, error: null };
+      },
+    });
+    mocks.createClient.mockReturnValue(fake);
+
+    const { revokeCompOff } = await import("@/lib/actions/leave");
+    const res = await revokeCompOff("grant-used");
+
+    expect(res.success).toBe(false);
+    expect(res.error).toContain("already been utilized");
+  });
+});
+

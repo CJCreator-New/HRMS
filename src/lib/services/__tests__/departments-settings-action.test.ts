@@ -17,6 +17,7 @@ import {
   toggleDepartmentActiveAction,
   updateDepartmentAction,
   getDepartmentsAction,
+  bulkAssignDepartments,
 } from "@/lib/actions/departments";
 import {
   getCompanySettingsAction,
@@ -106,6 +107,146 @@ describe("departments", () => {
 
     await expect(getDepartmentsAction()).resolves.toEqual({
       departments: [{ id: "d1", name: "Eng" }],
+    });
+  });
+
+  describe("bulkAssignDepartments", () => {
+    it("successfully creates assignments and closes prior open versions", async () => {
+      const inserts: Array<{ table: string; payload: any }> = [];
+      const updates: Array<{ table: string; payload: any }> = [];
+
+      const fake = createFakeSupabase({
+        respond: (state) => {
+          if (state.table === "employees" && state.method === "select") {
+            const empCodeFilter = state.filters.find((f) => f.col === "employee_code")?.val;
+            if (empCodeFilter === "EMP-101") {
+              return { data: { id: "emp-101", employee_code: "EMP-101", full_name: "Emp One" }, error: null };
+            }
+            if (empCodeFilter === "EMP-MGR") {
+              return { data: { id: "emp-mgr", employee_code: "EMP-MGR", full_name: "Manager One" }, error: null };
+            }
+            return { data: null, error: null };
+          }
+          if (state.table === "departments" && state.method === "select") {
+            return { data: { id: "dept-eng", name: "Engineering" }, error: null };
+          }
+          if (state.table === "employee_department_assignment" && state.method === "select") {
+            return { data: { id: "prev-dept", effective_from: "2026-01-01" }, error: null };
+          }
+          if (state.table === "employee_designation_assignment" && state.method === "select") {
+            return { data: { id: "prev-desig", effective_from: "2026-01-01" }, error: null };
+          }
+          if (state.table === "employee_manager_assignment" && state.method === "select") {
+            return { data: { id: "prev-mgr", effective_from: "2026-01-01" }, error: null };
+          }
+          if (state.method === "update") {
+            updates.push({ table: state.table, payload: state.payload });
+            return { data: { id: "upd-id" }, error: null };
+          }
+          if (state.method === "insert") {
+            inserts.push({ table: state.table, payload: state.payload });
+            return { data: { id: "ins-id", ...(state.payload as object) }, error: null };
+          }
+          return { data: null, error: null };
+        },
+      });
+      mocks.createClient.mockReturnValue(fake);
+
+      const result = await bulkAssignDepartments([
+        {
+          employee_code: "EMP-101",
+          department: "Engineering",
+          designation: "Senior Engineer",
+          manager_employee_code: "EMP-MGR",
+          effective_date: "2026-09-01",
+        },
+      ]);
+
+      expect(result.success).toBe(true);
+      expect(result.total).toBe(1);
+      expect(result.successCount).toBe(1);
+
+      // Verify previous versions closed
+      expect(updates.some((u) => u.table === "employee_department_assignment" && u.payload.effective_to === "2026-08-31")).toBe(true);
+      expect(updates.some((u) => u.table === "employee_designation_assignment" && u.payload.effective_to === "2026-08-31")).toBe(true);
+      expect(updates.some((u) => u.table === "employee_manager_assignment" && u.payload.effective_to === "2026-08-31")).toBe(true);
+
+      // Verify inserts
+      expect(inserts.some((i) => i.table === "employee_department_assignment" && i.payload.department_id === "dept-eng")).toBe(true);
+      expect(inserts.some((i) => i.table === "employee_designation_assignment" && i.payload.title === "Senior Engineer")).toBe(true);
+      expect(inserts.some((i) => i.table === "employee_manager_assignment" && i.payload.manager_id === "emp-mgr")).toBe(true);
+    });
+
+    it("rejects self-reporting manager assignment", async () => {
+      const fake = createFakeSupabase({
+        respond: (state) => {
+          if (state.table === "employees" && state.method === "select") {
+            return { data: { id: "emp-101", employee_code: "EMP-101" }, error: null };
+          }
+          return { data: null, error: null };
+        },
+      });
+      mocks.createClient.mockReturnValue(fake);
+
+      const result = await bulkAssignDepartments([
+        {
+          employee_code: "EMP-101",
+          department: "Engineering",
+          manager_employee_code: "EMP-101", // self
+          effective_date: "2026-09-01",
+        },
+      ]);
+
+      expect(result.success).toBe(false);
+      expect(result.errorCount).toBe(1);
+      expect(result.errors[0]).toContain("Self-reporting error");
+    });
+
+    it("rejects unknown manager employee code", async () => {
+      const fake = createFakeSupabase({
+        respond: (state) => {
+          if (state.table === "employees" && state.method === "select") {
+            const code = state.filters.find((f) => f.col === "employee_code")?.val;
+            if (code === "EMP-101") return { data: { id: "emp-101", employee_code: "EMP-101" }, error: null };
+            return { data: null, error: null }; // manager not found
+          }
+          if (state.table === "departments" && state.method === "select") {
+            return { data: { id: "dept-eng", name: "Engineering" }, error: null };
+          }
+          return { data: null, error: null };
+        },
+      });
+      mocks.createClient.mockReturnValue(fake);
+
+      const result = await bulkAssignDepartments([
+        {
+          employee_code: "EMP-101",
+          department: "Engineering",
+          manager_employee_code: "UNKNOWN-MGR",
+          effective_date: "2026-09-01",
+        },
+      ]);
+
+      expect(result.success).toBe(false);
+      expect(result.errorCount).toBe(1);
+      expect(result.errors[0]).toContain("Reporting manager code 'UNKNOWN-MGR' not found");
+    });
+
+    it("blocks unauthorized callers without department.bulk_assign", async () => {
+      mocks.assertPermission.mockResolvedValue({ error: "Insufficient permissions: department.bulk_assign required" });
+      const fake = createFakeSupabase();
+      mocks.createClient.mockReturnValue(fake);
+
+      const result = await bulkAssignDepartments([
+        {
+          employee_code: "EMP-101",
+          department: "Engineering",
+          effective_date: "2026-09-01",
+        },
+      ]);
+
+      expect(result.success).toBe(false);
+      expect(result.errors[0]).toContain("Insufficient permissions");
     });
   });
 });

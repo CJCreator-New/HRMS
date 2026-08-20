@@ -3,6 +3,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { computeSalaryBreakdown, previousDate } from "@/lib/services/compensation-engine";
 import { assertPermission } from "@/lib/auth/assertPermission";
+import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
+import { writeAuditLogAction } from "@/lib/actions/audit";
+import type { SalaryImportRow } from "@/lib/batch-import/schemas";
+import type { BatchCommitResult } from "@/lib/batch-import/types";
 
 export async function createSalaryStructureAction(
   employeeId: string,
@@ -46,4 +50,182 @@ export async function createSalaryStructureAction(
 
   if (error) return { error: error.message };
   return { success: true, record: data };
+}
+
+/**
+ * Bulk assigns per-employee salary structure versions (§5.1).
+ * Validates employee existence and checks against overlapping version exclusion constraints.
+ * Writes a batch audit log entry on completion.
+ */
+export async function bulkAssignSalaryStructure(
+  rows: SalaryImportRow[]
+): Promise<BatchCommitResult<SalaryImportRow>> {
+  const csrfError = await validateRequestOrigin();
+  if (csrfError) {
+    return {
+      success: false,
+      total: rows.length,
+      successCount: 0,
+      errorCount: rows.length,
+      errors: [csrfError.error],
+    };
+  }
+
+  const permError = await assertPermission("salary.bulk_assign");
+  if (permError) {
+    return {
+      success: false,
+      total: rows.length,
+      successCount: 0,
+      errorCount: rows.length,
+      errors: [permError.error],
+    };
+  }
+
+  const supabase = await createClient();
+  let successCount = 0;
+  let errorCount = 0;
+  const errors: string[] = [];
+  const rowResults: BatchCommitResult<SalaryImportRow>["rowResults"] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNum = i + 1;
+    const empCode = sanitizeInput(row.employee_code || "").trim();
+    const annualCtc = Number(row.annual_ctc);
+    const effectiveFrom = row.effective_start_date;
+    const effectiveTo = row.effective_end_date ? row.effective_end_date.trim() : null;
+
+    if (!empCode || isNaN(annualCtc) || !effectiveFrom) {
+      errorCount++;
+      const msg = `Row #${rowNum}: Missing required salary fields (employee_code, annual_ctc, effective_start_date).`;
+      errors.push(msg);
+      rowResults.push({ rowNumber: rowNum, status: "failed", message: msg, data: row });
+      continue;
+    }
+
+    // 1. Resolve employee
+    const { data: emp, error: empErr } = await supabase
+      .from("employees")
+      .select("id, employee_code, full_name")
+      .eq("employee_code", empCode)
+      .maybeSingle();
+
+    if (empErr || !emp) {
+      errorCount++;
+      const msg = `Row #${rowNum}: Employee code '${empCode}' not found.`;
+      errors.push(msg);
+      rowResults.push({ rowNumber: rowNum, status: "failed", message: msg, data: row });
+      continue;
+    }
+
+    // 2. Fetch existing salary structures to check for overlapping ranges
+    const { data: existingVersions, error: fetchErr } = await supabase
+      .from("employee_salary_structures")
+      .select("id, effective_from, effective_to, version_number")
+      .eq("employee_id", emp.id);
+
+    if (fetchErr) {
+      errorCount++;
+      const msg = `Row #${rowNum}: Failed to verify salary history for '${empCode}': ${fetchErr.message}`;
+      errors.push(msg);
+      rowResults.push({ rowNumber: rowNum, status: "failed", message: msg, data: row });
+      continue;
+    }
+
+    const newStart = new Date(effectiveFrom).getTime();
+    const newEnd = effectiveTo ? new Date(effectiveTo).getTime() : Infinity;
+
+    let hasOverlapConflict = false;
+    let openVersionToClose: { id: string; effective_from: string } | null = null;
+
+    for (const v of existingVersions || []) {
+      const vStart = new Date(v.effective_from).getTime();
+      const vEnd = v.effective_to ? new Date(v.effective_to).getTime() : Infinity;
+
+      // Check if [newStart, newEnd] overlaps with [vStart, vEnd]
+      if (newStart <= vEnd && vStart <= newEnd) {
+        // If the existing version is open-ended and starts strictly before newStart, and new version is open or future
+        if (v.effective_to === null && newStart > vStart && !openVersionToClose) {
+          openVersionToClose = { id: v.id, effective_from: v.effective_from };
+        } else {
+          hasOverlapConflict = true;
+          const conflictPeriod = `[${v.effective_from} to ${v.effective_to || "present"}]`;
+          const requestedPeriod = `[${effectiveFrom} to ${effectiveTo || "present"}]`;
+          const msg = `Row #${rowNum}: Overlapping version conflict for ${empCode}: version ${conflictPeriod} overlaps requested ${requestedPeriod}.`;
+          errors.push(msg);
+          rowResults.push({ rowNumber: rowNum, status: "failed", message: msg, data: row });
+          break;
+        }
+      }
+    }
+
+    if (hasOverlapConflict) {
+      errorCount++;
+      continue;
+    }
+
+    // Close the previous open version if applicable
+    if (openVersionToClose) {
+      const prevDay = previousDate(effectiveFrom);
+      await supabase
+        .from("employee_salary_structures")
+        .update({ effective_to: prevDay })
+        .eq("id", openVersionToClose.id);
+    }
+
+    // 3. Compute salary breakdown & insert new record
+    const { monthlyGross, basicMonthly } = computeSalaryBreakdown(annualCtc);
+    const nextVersionNum = (existingVersions?.length || 0) + 1;
+
+    const { error: insertErr } = await supabase
+      .from("employee_salary_structures")
+      .insert({
+        employee_id: emp.id,
+        annual_ctc: annualCtc,
+        monthly_gross: monthlyGross,
+        basic_monthly: basicMonthly,
+        effective_from: effectiveFrom,
+        effective_to: effectiveTo,
+        version_number: nextVersionNum,
+      });
+
+    if (insertErr) {
+      errorCount++;
+      const msg = `Row #${rowNum}: Failed to insert salary structure for ${empCode}: ${insertErr.message}`;
+      errors.push(msg);
+      rowResults.push({ rowNumber: rowNum, status: "failed", message: msg, data: row });
+    } else {
+      successCount++;
+      rowResults.push({
+        rowNumber: rowNum,
+        status: "success",
+        message: `Assigned CTC ₹${annualCtc.toLocaleString("en-IN")} effective ${effectiveFrom}`,
+        data: row,
+      });
+    }
+  }
+
+  // 4. Record single batch audit log entry
+  if (successCount > 0) {
+    await writeAuditLogAction({
+      action: "salary.bulk_assign",
+      entityType: "salary_structure",
+      metadata: {
+        totalRows: rows.length,
+        successCount,
+        errorCount,
+        errors: errors.slice(0, 10),
+      },
+    });
+  }
+
+  return {
+    success: errorCount === 0,
+    total: rows.length,
+    successCount,
+    errorCount,
+    errors,
+    rowResults,
+  };
 }

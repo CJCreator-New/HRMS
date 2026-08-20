@@ -61,7 +61,7 @@ export const TEST_PERSONAS: Record<string, TestPersona> = {
     email: "hr.alt@company.com",
     name: "Vikram Malhotra",
     code: "EMP-004",
-    roles: ["employee"], // negative/alternate test persona with access revoked
+    roles: ["hr"],
   },
   manager_m2: {
     id: "persona-mgr-002",

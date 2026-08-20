@@ -324,3 +324,119 @@ export async function requestCompOffAction(
   return { success: true, record: data };
 }
 
+export async function creditCompOff(
+  employeeId: string,
+  workedDate: string,
+  daysGranted: number = 1.0,
+  reason?: string
+): Promise<{ success: boolean; error?: string; record?: any }> {
+  const csrfError = await validateRequestOrigin();
+  if (csrfError) return { success: false, error: csrfError.error };
+
+  const permError = await assertAnyPermission(["compoff.manage", "leave.manage", "leave.approve.hr"]);
+  if (permError) return { success: false, error: permError.error };
+
+  const supabase = await createClient();
+  const caller = await getAuthenticatedCaller();
+
+  const expiryDate = computeCompOffExpiryDate(workedDate);
+
+  const { data: grant, error } = await supabase
+    .from("comp_off_grants")
+    .insert({
+      employee_id: employeeId,
+      worked_date: workedDate,
+      days_granted: daysGranted,
+      expiry_date: expiryDate,
+      status: "approved",
+      approver_id: caller?.employeeId || null,
+    })
+    .select()
+    .single();
+
+  if (error) return { success: false, error: error.message };
+
+  // Write audit log
+  try {
+    const { writeAuditLogAction } = await import("@/lib/actions/audit");
+    await writeAuditLogAction({
+      action: "compoff.credit_grant",
+      entityType: "comp_off_grants",
+      entityId: grant.id,
+      newValues: {
+        employee_id: employeeId,
+        worked_date: workedDate,
+        days_granted: daysGranted,
+        expiry_date: expiryDate,
+        reason,
+      },
+    });
+  } catch {
+    // Non-blocking audit failure in mock/test environment
+  }
+
+  return { success: true, record: grant };
+}
+
+export async function revokeCompOff(
+  grantId: string,
+  reason?: string
+): Promise<{ success: boolean; error?: string; record?: any }> {
+  const csrfError = await validateRequestOrigin();
+  if (csrfError) return { success: false, error: csrfError.error };
+
+  const permError = await assertAnyPermission(["compoff.manage", "leave.manage", "leave.approve.hr"]);
+  if (permError) return { success: false, error: permError.error };
+
+  const supabase = await createClient();
+
+  const { data: grant, error: fetchError } = await supabase
+    .from("comp_off_grants")
+    .select("*")
+    .eq("id", grantId)
+    .single();
+
+  if (fetchError || !grant) {
+    return { success: false, error: "Comp-off grant record not found." };
+  }
+
+  if (grant.is_used) {
+    return { success: false, error: "Cannot revoke comp-off grant: Grant has already been utilized." };
+  }
+
+  if (grant.status === "rejected" || grant.status === "cancelled" || grant.status === "withdrawn") {
+    return { success: false, error: `Grant is already ${grant.status}.` };
+  }
+
+  const { data: updated, error: updateError } = await supabase
+    .from("comp_off_grants")
+    .update({
+      status: "rejected",
+    })
+    .eq("id", grantId)
+    .select()
+    .single();
+
+  if (updateError) return { success: false, error: updateError.message };
+
+  // Write audit log
+  try {
+    const { writeAuditLogAction } = await import("@/lib/actions/audit");
+    await writeAuditLogAction({
+      action: "compoff.revoke_grant",
+      entityType: "comp_off_grants",
+      entityId: grantId,
+      oldValues: { status: grant.status },
+      newValues: { status: "rejected", reason },
+    });
+  } catch {
+    // Non-blocking audit failure in mock/test environment
+  }
+
+  return { success: true, record: updated };
+}
+
+export const creditCompOffAction = creditCompOff;
+export const revokeCompOffAction = revokeCompOff;
+
+

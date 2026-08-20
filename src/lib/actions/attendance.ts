@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { assertPermission, assertAnyPermission, assertCallerIdentity, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";

@@ -88,7 +88,7 @@ export function classifyAuthError(
   }
 
   // Check for placeholder or invalid configuration
-  if (!context.supabaseUrl || context.supabaseUrl.includes("placeholder") || !process.env.NEXT_PUBLIC_SUPABASE_URL) {
+  if (!context.supabaseUrl || context.supabaseUrl.includes("placeholder")) {
     return {
       type: "CONFIG_MISMATCH",
       summary: "Supabase endpoint is using placeholder or unset environment variable.",

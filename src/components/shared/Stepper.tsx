@@ -41,8 +41,8 @@ export function Stepper({ steps, current, testId = "stepper", className = "" }: 
                     isCompleted
                       ? "bg-emerald-600 border-emerald-600 text-white"
                       : isActive
-                      ? "bg-blue-600 border-blue-600 text-white shadow-sm"
-                      : "bg-white border-gray-300 text-gray-500"
+                      ? "bg-primary-600 border-primary-600 text-white shadow-sm"
+                      : "bg-surface border-line-strong text-ink-muted"
                   }`}
                 >
                   {isCompleted ? (
@@ -53,7 +53,7 @@ export function Stepper({ steps, current, testId = "stepper", className = "" }: 
                 </span>
                 <span
                   className={`mt-1.5 text-[10px] font-semibold uppercase tracking-wide hidden sm:block ${
-                    isActive ? "text-blue-700" : isCompleted ? "text-emerald-700" : "text-gray-500"
+                    isActive ? "text-primary-700" : isCompleted ? "text-emerald-700" : "text-ink-muted"
                   }`}
                 >
                   {step}
@@ -62,7 +62,7 @@ export function Stepper({ steps, current, testId = "stepper", className = "" }: 
               {index < steps.length - 1 && (
                 <div
                   aria-hidden="true"
-                  className={`flex-1 h-0.5 mx-2 rounded ${index < current ? "bg-emerald-600" : "bg-gray-200"}`}
+                  className={`flex-1 h-0.5 mx-2 rounded ${index < current ? "bg-emerald-600" : "bg-line"}`}
                 />
               )}
             </li>

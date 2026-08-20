@@ -34,15 +34,15 @@ export function ConfirmDialog({
       {description && (
         <div className="flex items-start gap-3">
           {danger && <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" aria-hidden="true" />}
-          <p className="text-xs text-gray-600 leading-relaxed">{description}</p>
+          <p className="text-xs text-ink-secondary leading-relaxed">{description}</p>
         </div>
       )}
-      <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+      <div className="flex justify-end gap-2 pt-2 border-t border-line">
         <button
           type="button"
           data-testid="confirm-dialog-cancel"
           onClick={onCancel}
-          className="px-3 py-1.5 text-gray-600 hover:bg-gray-100 rounded-lg text-xs font-semibold transition"
+          className="px-3 py-1.5 text-ink-secondary hover:bg-surface-muted rounded-lg text-xs font-semibold transition"
         >
           {cancelLabel}
         </button>
@@ -51,7 +51,7 @@ export function ConfirmDialog({
           data-testid="confirm-dialog-confirm"
           onClick={onConfirm}
           className={`px-4 py-1.5 text-white text-xs font-semibold rounded-lg transition shadow-xs ${
-            danger ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"
+            danger ? "bg-red-600 hover:bg-red-700" : "bg-primary-600 hover:bg-primary-700"
           }`}
         >
           {confirmLabel}

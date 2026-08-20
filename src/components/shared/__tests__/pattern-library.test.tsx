@@ -22,6 +22,7 @@ describe("StatusBadge", () => {
     expect(statusBadgeClass("invited")).toContain("bg-amber-100");
     expect(statusBadgeClass("rejected")).toContain("bg-red-100");
     expect(statusBadgeClass("revoked")).toContain("bg-red-100");
+    expect(statusBadgeClass("withdrawn")).toContain("bg-red-100");
     expect(statusBadgeClass("notice_period")).toContain("bg-blue-100");
     expect(statusBadgeClass("some_unknown_state")).toContain("bg-gray-100");
   });

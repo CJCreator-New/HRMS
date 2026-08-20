@@ -1,15 +1,17 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { ShieldCheck, Edit, CheckCircle2, Scale } from "lucide-react";
+import { ShieldCheck, Edit, CheckCircle2, Scale, Upload } from "lucide-react";
 import { getStatutoryDataAction } from "@/lib/actions/data";
-import { saveStatutoryProfileAction } from "@/lib/actions/statutory";
+import { saveStatutoryProfileAction, bulkUpsertStatutoryProfiles } from "@/lib/actions/statutory";
 import { Modal } from "@/components/shared/Modal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { DataTable } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useToast } from "@/components/shared/Toast";
 import { formatCurrencyIndian } from "@/lib/utils/formatters";
+import { BatchUploadDrawer } from "@/components/shared/batch-import/BatchUploadDrawer";
+import { StatutoryProfileBatchSchema } from "@/lib/batch-import/schemas";
 
 interface StatutoryProfile {
   id: string;
@@ -33,28 +35,32 @@ export default function StatutoryManagementPage() {
   const [selectedProfile, setSelectedProfile] = useState<StatutoryProfile | null>(null);
   const { toast } = useToast();
 
+  const [showBatchDrawer, setShowBatchDrawer] = useState(false);
+
+  const loadStatutoryData = async () => {
+    setLoading(true);
+    const res = await getStatutoryDataAction();
+    const rawProfiles: any[] = (res as any).profiles || [];
+    setProfiles(rawProfiles.map((p: any) => ({
+      id: p.id,
+      employee_code: p.employees?.employee_code || "",
+      employee_name: p.employees?.full_name || "",
+      pan_number: p.pan_number || "",
+      uan_number: p.uan_number || "",
+      pf_applicable: p.pf_applicable ?? p.is_pf_applicable ?? true,
+      esi_applicable: p.esi_applicable ?? p.is_esi_applicable ?? true,
+      pt_state: p.pt_state || "Karnataka",
+      tax_regime: p.tax_regime || "new_regime",
+      pf_amount: p.pf_amount || 0,
+      esi_amount: p.esi_amount || 0,
+      pt_amount: p.pt_amount || 0,
+      tds_amount: p.tds_amount || 0,
+    })));
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const load = async () => {
-      const res = await getStatutoryDataAction();
-      const rawProfiles: any[] = (res as any).profiles || [];
-      setProfiles(rawProfiles.map((p: any) => ({
-        id: p.id,
-        employee_code: p.employees?.employee_code || "",
-        employee_name: p.employees?.full_name || "",
-        pan_number: p.pan_number || "",
-        uan_number: p.uan_number || "",
-        pf_applicable: p.pf_applicable ?? p.is_pf_applicable ?? true,
-        esi_applicable: p.esi_applicable ?? p.is_esi_applicable ?? true,
-        pt_state: p.pt_state || "Karnataka",
-        tax_regime: p.tax_regime || "new_regime",
-        pf_amount: p.pf_amount || 0,
-        esi_amount: p.esi_amount || 0,
-        pt_amount: p.pt_amount || 0,
-        tds_amount: p.tds_amount || 0,
-      })));
-      setLoading(false);
-    };
-    load();
+    loadStatutoryData();
   }, []);
 
   // Edit form state
@@ -102,9 +108,17 @@ export default function StatutoryManagementPage() {
         title="India Statutory Payroll Engine FY 2025–26"
         description="Versioned statutory rule container, PF ₹15k wage cap, ESI 0.75%, state PT slabs, and tax regime profiles."
         actions={
-          <span className="text-xs font-bold px-3 py-1 bg-indigo-100 text-indigo-800 rounded-full">
-            Rule Version: India_Statutory_FY2025_26
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowBatchDrawer(true)}
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition flex items-center gap-1.5 shadow-xs"
+            >
+              <Upload className="w-4 h-4" /> Batch Upload (.xlsx / .csv)
+            </button>
+            <span className="text-xs font-bold px-3 py-1 bg-indigo-100 text-indigo-800 rounded-full">
+              Rule Version: India_Statutory_FY2025_26
+            </span>
+          </div>
         }
       />
 
@@ -247,6 +261,18 @@ export default function StatutoryManagementPage() {
           </div>
         </form>
       </Modal>
+
+      {/* Shared Batch Upload Drawer */}
+      <BatchUploadDrawer
+        isOpen={showBatchDrawer}
+        onClose={() => setShowBatchDrawer(false)}
+        schema={StatutoryProfileBatchSchema}
+        onCommit={bulkUpsertStatutoryProfiles}
+        onSuccess={async () => {
+          await loadStatutoryData();
+          toast("Statutory profiles updated successfully from batch upload.");
+        }}
+      />
     </div>
   );
 }

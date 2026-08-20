@@ -60,7 +60,8 @@
   --z-modal: 50;
   --z-drawer: 50;
   --z-overlay: 55;
-  --z-search: 60;
+  --z-toast: 60;
+  --z-search: 70;
 
   /* Sidebar dark surface — intentional dark navigation chrome */
   --sidebar-bg: #0f172a;

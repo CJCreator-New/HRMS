@@ -18,6 +18,7 @@ import {
   createEmployeeAction,
   getEmployeesAction,
   importEmployeesCsvAction,
+  importEmployeesAction,
   toggleEmployeeDeactivationAction,
   updateEmployeeAssignmentAction,
 } from "@/lib/actions/employees";
@@ -199,6 +200,68 @@ describe("importEmployeesCsvAction", () => {
       date_of_joining: "2026-01-01",
       status: "invited",
     });
+  });
+});
+
+describe("importEmployeesAction", () => {
+  beforeEach(() => {
+    mocks.createClient.mockReset();
+    mocks.createAdminClient.mockReset();
+    mocks.assertPermission.mockReset();
+    mocks.assertPermission.mockResolvedValue(null);
+  });
+
+  it("returns BatchCommitResult with rowResults for valid and invalid rows", async () => {
+    const adminFake = {
+      auth: {
+        admin: {
+          createUser: vi.fn(async ({ email }) =>
+            email === "err@x.com"
+              ? { data: null, error: { message: "Email taken" } }
+              : { data: { user: { id: "auth-uid" } }, error: null }
+          ),
+          deleteUser: vi.fn(async () => ({})),
+        },
+      },
+    };
+    mocks.createAdminClient.mockReturnValue(adminFake as any);
+
+    const fake = createFakeSupabase({
+      respond: (state) => {
+        if (state.table === "employees" && state.method === "insert") {
+          return { data: null, error: null };
+        }
+        return { data: null, error: null };
+      },
+    });
+    mocks.createClient.mockReturnValue(fake);
+
+    const result = await importEmployeesAction([
+      { code: "EMP-101", name: "Valid One", email: "one@x.com", doj: "2026-08-01" },
+      { code: "", name: "No Code", email: "two@x.com" },
+      { code: "EMP-103", name: "Auth Error", email: "err@x.com" },
+    ]);
+
+    expect(result.total).toBe(3);
+    expect(result.successCount).toBe(1);
+    expect(result.errorCount).toBe(2);
+    expect(result.rowResults).toHaveLength(3);
+    expect(result.rowResults?.[0].status).toBe("success");
+    expect(result.rowResults?.[1].status).toBe("failed");
+    expect(result.rowResults?.[2].status).toBe("failed");
+  });
+
+  it("blocks unauthorized callers without employee.import", async () => {
+    mocks.assertPermission.mockResolvedValue({ error: "Insufficient permissions: employee.import required" });
+    const fake = createFakeSupabase();
+    mocks.createClient.mockReturnValue(fake);
+
+    const result = await importEmployeesAction([
+      { code: "EMP-101", name: "Valid One", email: "one@x.com" },
+    ]);
+
+    expect(result.success).toBe(false);
+    expect(result.errors[0]).toContain("Insufficient permissions");
   });
 });
 

@@ -8,6 +8,29 @@ export type EmployeeStatus =
   | "offboarded"
   | "withdrawn";
 
+export type LeaveRequestStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "cancelled"
+  | "withdrawn";
+
+export type SeparationStatus =
+  | "pending"
+  | "active"
+  | "rescinded"
+  | "completed"
+  | "withdrawn";
+
+export type FFStatus =
+  | "draft"
+  | "pending_approval"
+  | "approved"
+  | "paid"
+  | "reopened"
+  | "cancelled"
+  | "withdrawn";
+
 export type RoleCode =
   | "employee"
   | "manager"

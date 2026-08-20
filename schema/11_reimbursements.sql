@@ -94,6 +94,28 @@ create trigger trg_check_reimbursement_dup
   before insert or update on reimbursement_claims
   for each row execute function check_reimbursement_duplicate();
 
+-- 5b. Two-Stage Approval Routing Enforcement Trigger (FR §11.3 / ADR 0003)
+create or replace function check_reimbursement_approval_flow() returns trigger
+language plpgsql as $$
+declare
+  v_route approval_route_type;
+begin
+  if new.status = 'approved' and (old is null or old.status not in ('approved', 'pending_hr')) then
+    select approval_route into v_route
+    from reimbursement_categories where id = new.category_id;
+
+    if v_route = 'manager_then_hr' and (old is null or old.status in ('submitted', 'pending_manager')) then
+      raise exception 'Two-stage approval required: Manager approval must precede HR approval (§11.3)';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger trg_check_reimbursement_route
+  before update on reimbursement_claims
+  for each row execute function check_reimbursement_approval_flow();
+
 -- 6. Row Level Security
 alter table reimbursement_categories enable row level security;
 alter table reimbursement_claims enable row level security;

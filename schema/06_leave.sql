@@ -5,8 +5,7 @@
 -- Strictly aligned with FR §4.1–§4.9 & ADR 0003
 -- ============================================================================
 
--- 1. Leave Enums
-create type leave_request_status as enum ('pending', 'approved', 'rejected', 'cancelled');
+create type leave_request_status as enum ('pending', 'approved', 'rejected', 'cancelled', 'withdrawn');
 create type leave_duration_type as enum ('full_day', 'first_half', 'second_half'); -- FR §3.6a
 create type leave_ledger_transaction as enum (
   'opening', 'accrual', 'usage', 'reservation', 'encashment', 'carry_forward', 'comp_off_expiry', 'lop_conversion', 'manual_adjustment'

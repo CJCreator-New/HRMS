@@ -147,7 +147,7 @@ export function DataTable<T = any>({
       <div className="overflow-x-auto">
         {visibleRows.length === 0 ? (
           empty ?? (
-            <div className="p-8 text-center text-sm text-gray-500">No records found.</div>
+            <div className="p-8 text-center text-sm text-ink-secondary">No records found.</div>
           )
         ) : (
           <table className={`w-full text-left text-xs border-collapse ${minWidth}`}>
@@ -205,11 +205,11 @@ export function DataTable<T = any>({
         data-testid="pagination"
         className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-line bg-surface-muted/50"
       >
-        <span data-testid="pagination-page" className="text-xs font-semibold text-gray-700">
+        <span data-testid="pagination-page" className="text-xs font-semibold text-ink">
           Page {page} of {totalPages}
         </span>
         <div className="flex items-center gap-3 text-xs">
-          <label className="flex items-center gap-1.5 text-gray-600 font-medium">
+          <label className="flex items-center gap-1.5 text-ink-secondary font-medium">
             Rows per page
             <select
               data-testid="pagination-size"

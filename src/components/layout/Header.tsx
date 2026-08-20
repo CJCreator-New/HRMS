@@ -54,7 +54,7 @@ export function Header({
           <Breadcrumbs />
           <h1 className="text-base sm:text-lg font-bold text-ink tracking-tight flex items-center gap-2">
             {activePageTitle}
-            <span className="hidden md:inline-flex text-[11px] font-semibold px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">
+            <span className="hidden md:inline-flex text-[11px] font-semibold px-2 py-0.5 bg-primary-100 text-primary-700 rounded-full">
               v2.7
             </span>
           </h1>
@@ -74,7 +74,7 @@ export function Header({
         {/* Multi-Role Focus Switcher */}
         {assignedRoles.length > 1 && (
           <div data-testid="role-switcher" className="relative hidden md:flex items-center bg-surface-muted border border-line rounded-lg p-0.5">
-            <Shield className="w-4 h-4 text-blue-600 ml-2" aria-hidden="true" />
+            <Shield className="w-4 h-4 text-primary-600 ml-2" aria-hidden="true" />
             <select
               data-testid="role-switcher-select"
               aria-label="Select workspace role filter"
@@ -98,7 +98,7 @@ export function Header({
         {/* User Avatar & Logout */}
         <div className="flex items-center gap-2 pl-2 sm:pl-3 border-l border-line">
           <div
-            className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-semibold text-xs sm:text-sm shadow-xs"
+            className="w-8 h-8 rounded-full bg-primary-600 text-white flex items-center justify-center font-semibold text-xs sm:text-sm shadow-xs"
             aria-label={`User avatar for ${userName}`}
           >
             {userName.charAt(0)}

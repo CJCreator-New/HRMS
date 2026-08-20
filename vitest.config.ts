@@ -5,11 +5,8 @@ export default defineConfig({
   test: {
     include: ["src/**/*.{test,spec}.{js,ts,jsx,tsx}"],
     exclude: ["e2e/**/*", "node_modules/**/*"],
-    // jsdom required for React component tests (.tsx); pure-logic tests
-    // also execute correctly under jsdom, so a single environment covers all.
-    environment: "jsdom",
+    environment: "node",
     setupFiles: ["./vitest.setup.ts"],
-    // Increase timeout for component tests that need jsdom hydration
     testTimeout: 15_000,
     coverage: {
       // v8 coverage via @vitest/coverage-v8 (npm run test:coverage)

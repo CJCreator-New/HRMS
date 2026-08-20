@@ -12,4 +12,13 @@ test.describe("Module 02: Employee Lifecycle & Org Structure (P1)", () => {
     await page.goto(`${baseURL}/employees`);
     await expect(page.locator("body")).toBeVisible();
   });
+
+  test("ORG-06: Department batch assignment drawer and template download available", async ({ hrAdminPage: page, baseURL }) => {
+    await page.goto(`${baseURL}/departments`);
+    const batchBtn = page.getByRole("button", { name: /Batch Assign/i });
+    await expect(batchBtn).toBeVisible();
+    await batchBtn.click();
+    await expect(page.getByText(/Batch Upload: Department & Hierarchy Assignments/i)).toBeVisible();
+    await expect(page.getByText(/Download Template/i)).toBeVisible();
+  });
 });

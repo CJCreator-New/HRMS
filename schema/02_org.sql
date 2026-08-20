@@ -138,7 +138,7 @@ $$;
 
 -- 6. Separation & Offboarding Workflow (§2.2, §2.3)
 create type separation_type as enum ('resignation', 'termination');
-create type separation_status as enum ('pending', 'active', 'rescinded', 'completed');
+create type separation_status as enum ('pending', 'active', 'rescinded', 'completed', 'withdrawn');
 create type non_working_day_rule as enum ('previous_working_day', 'next_working_day');
 
 create table separation_records (

@@ -5,8 +5,7 @@
 -- Strictly aligned with FR §5.4 & ADR 0003
 -- ============================================================================
 
--- 1. Enums
-create type ff_status as enum ('draft', 'pending_approval', 'approved', 'paid', 'reopened', 'cancelled');
+create type ff_status as enum ('draft', 'pending_approval', 'approved', 'paid', 'reopened', 'cancelled', 'withdrawn');
 
 -- 2. Master Full & Final Settlement Table (§5.4)
 create table ff_settlement_records (

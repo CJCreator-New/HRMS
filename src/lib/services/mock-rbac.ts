@@ -25,7 +25,7 @@ export const E2E_MOCK_ALLOWED_ROUTES: Record<string, string[] | "ALL"> = {
     "/", "/approvals", "/attendance", "/leave", "/calendar",
     "/employees", "/employees/import", "/onboarding", "/departments",
     "/offboarding", "/salary", "/statutory", "/reimbursements",
-    "/encashment", "/documents", "/permissions", "/jobs",
+    "/encashment", "/documents", "/jobs",
     "/reports", "/settings", "/audit",
   ],
   "payroll@company.com": [
@@ -44,7 +44,7 @@ export const E2E_MOCK_ALLOWED_ROUTES: Record<string, string[] | "ALL"> = {
   ],
   "employee.e1@company.com": [
     "/", "/attendance", "/leave", "/calendar", "/employees",
-    "/salary", "/offboarding", "/payroll", "/reimbursements", "/encashment", "/documents", "/permissions",
+    "/salary", "/offboarding", "/reimbursements", "/encashment", "/documents", "/permissions",
   ],
   "employee.e2@company.com": [],     // fully restricted persona
   "employee.e3@company.com": [
@@ -58,7 +58,13 @@ export const E2E_MOCK_ALLOWED_ROUTES: Record<string, string[] | "ALL"> = {
     "/encashment", "/documents", "/permissions", "/jobs",
     "/reports", "/settings", "/audit",
   ],
-  "hr.alt@company.com": [],          // secondary test persona for negative / alternate testing
+  "hr.alt@company.com": [
+    "/", "/approvals", "/attendance", "/leave", "/calendar",
+    "/employees", "/employees/import", "/onboarding", "/departments",
+    "/offboarding", "/salary", "/statutory", "/reimbursements",
+    "/encashment", "/documents", "/jobs",
+    "/reports", "/settings", "/audit",
+  ],
   // Lifecycle personas: active-workforce states get employee routes;
   // suspended/offboarded have access revoked (CONTEXT.md domain model), so
   // they are deny-all — they exist to be acted on, not to log in.
@@ -139,11 +145,7 @@ export function resolveMockRolesFromEmail(
   if (email.includes("sysadmin") || email.startsWith("admin@")) return { roles: ["system_admin"], mustChangePassword: false };
   if (email.includes("multi.hrmgr")) return { roles: ["hr", "manager"], mustChangePassword: false };
   if (email.includes("hradmin")) return { roles: ["hr"], mustChangePassword: false };
-  // hr.alt is a negative/alternate test persona with access revoked (empty route
-  // list). Resolves to employee role — the minimal valid permission set — so the
-  // role switcher shows a non-misleading role while hasMockPermission still denies
-  // access via the empty route list.
-  if (email.includes("hr.alt")) return { roles: ["employee"], mustChangePassword: false };
+  if (email.includes("hr.alt")) return { roles: ["hr"], mustChangePassword: false };
   if (email.includes("payroll")) return { roles: ["payroll_admin"], mustChangePassword: false };
   if (email.includes("manager")) return { roles: ["manager"], mustChangePassword: false };
   if (email.includes("invited")) return { roles: ["employee"], mustChangePassword: true };

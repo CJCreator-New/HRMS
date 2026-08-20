@@ -76,6 +76,7 @@ const config: Config = {
         modal: "var(--z-modal)",
         drawer: "var(--z-drawer)",
         overlay: "var(--z-overlay)",
+        toast: "var(--z-toast)",
         search: "var(--z-search)",
       },
     },

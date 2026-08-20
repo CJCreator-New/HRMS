@@ -1,14 +1,22 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Building2, Plus, Edit2, Search } from "lucide-react";
-import { getDepartmentsAction, createDepartmentAction, toggleDepartmentActiveAction, updateDepartmentAction } from "@/lib/actions/departments";
+import { Building2, Plus, Edit2, Search, Upload } from "lucide-react";
+import {
+  getDepartmentsAction,
+  createDepartmentAction,
+  toggleDepartmentActiveAction,
+  updateDepartmentAction,
+  bulkAssignDepartments,
+} from "@/lib/actions/departments";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Modal } from "@/components/shared/Modal";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { DataTable } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useToast } from "@/components/shared/Toast";
+import { BatchUploadDrawer } from "@/components/shared/batch-import/BatchUploadDrawer";
+import { DepartmentAssignmentBatchSchema } from "@/lib/batch-import/schemas";
 
 interface Department {
   id: string;
@@ -25,6 +33,7 @@ export default function DepartmentsPage() {
   const [newDeptName, setNewDeptName] = useState("");
   const [editingDept, setEditingDept] = useState<Department | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showBatchDrawer, setShowBatchDrawer] = useState(false);
   const { toast } = useToast();
 
   const loadDepts = async () => {
@@ -93,12 +102,20 @@ export default function DepartmentsPage() {
         title="Department Master Management"
         description="Create, edit, and manage organizational departments and their active status."
         actions={
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold rounded-lg transition flex items-center gap-2 shadow-xs"
-          >
-            <Plus className="w-4 h-4" /> Add New Department
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowBatchDrawer(true)}
+              className="px-3.5 py-2 bg-surface hover:bg-surface-muted border border-line text-ink text-xs font-semibold rounded-lg transition flex items-center gap-1.5 shadow-xs"
+            >
+              <Upload className="w-4 h-4 text-primary-600" /> Batch Assign (.xlsx / .csv)
+            </button>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold rounded-lg transition flex items-center gap-2 shadow-xs"
+            >
+              <Plus className="w-4 h-4" /> Add New Department
+            </button>
+          </div>
         }
       />
 
@@ -249,6 +266,18 @@ export default function DepartmentsPage() {
           </form>
         )}
       </Modal>
+
+      {/* Shared Batch Upload Drawer */}
+      <BatchUploadDrawer
+        isOpen={showBatchDrawer}
+        onClose={() => setShowBatchDrawer(false)}
+        schema={DepartmentAssignmentBatchSchema}
+        onCommit={bulkAssignDepartments}
+        onSuccess={async () => {
+          await loadDepts();
+          toast("Department & hierarchy assignments updated successfully from batch upload.");
+        }}
+      />
     </div>
   );
 }

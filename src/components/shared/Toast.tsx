@@ -40,14 +40,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   const renderIcon = (variant: ToastVariant) => {
     if (variant === "error") return <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" aria-hidden="true" />;
-    if (variant === "info") return <Info className="w-4 h-4 text-blue-600 shrink-0" aria-hidden="true" />;
+    if (variant === "info") return <Info className="w-4 h-4 text-primary-600 shrink-0" aria-hidden="true" />;
     return <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" aria-hidden="true" />;
   };
 
   return (
     <ToastContext.Provider value={{ toast }}>
       {children}
-      <div className="fixed bottom-4 right-4 z-[60] space-y-2 max-w-sm w-full" aria-live="polite">
+      <div className="fixed bottom-4 right-4 z-toast space-y-2 max-w-sm w-full" aria-live="polite">
         {toasts.map((t) => (
           <div
             key={t.id}
@@ -58,7 +58,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               t.variant === "error"
                 ? "border-red-200 text-red-900"
                 : t.variant === "info"
-                ? "border-blue-200 text-blue-900"
+                ? "border-primary-200 text-primary-900"
                 : "border-emerald-200 text-emerald-900"
             }`}
           >
@@ -68,7 +68,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               onClick={() => dismiss(t.id)}
               aria-label="Dismiss notification"
               data-testid="toast-close"
-              className="shrink-0 p-1 text-gray-400 hover:text-gray-700 rounded transition"
+              className="shrink-0 p-1 text-ink-muted hover:text-ink rounded transition"
             >
               <X className="w-3.5 h-3.5" />
             </button>

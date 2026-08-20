@@ -78,6 +78,10 @@ class FakeQueryBuilder {
     this.state.filters.push({ op: "eq", col, val });
     return this;
   }
+  ilike(col: string, val: unknown) {
+    this.state.filters.push({ op: "eq", col, val });
+    return this;
+  }
   neq(col: string, val: unknown) {
     this.state.filters.push({ op: "neq", col, val });
     return this;

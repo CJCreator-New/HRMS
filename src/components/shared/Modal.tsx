@@ -65,8 +65,8 @@ export function Modal({
         className={`bg-surface rounded-xl shadow-overlay w-full ${maxWidth} p-6 space-y-4 max-h-[90vh] overflow-y-auto`}
       >
         {title && (
-          <div className="flex items-center justify-between border-b border-gray-200 pb-3">
-            <h3 id="modal-title" className="text-base font-bold text-gray-900">
+          <div className="flex items-center justify-between border-b border-line pb-3">
+            <h3 id="modal-title" className="text-base font-bold text-ink">
               {title}
             </h3>
             {closable && (
@@ -74,7 +74,7 @@ export function Modal({
                 onClick={onClose}
                 aria-label={closeLabel}
                 data-testid="modal-close"
-                className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                className="p-1.5 text-ink-muted hover:text-ink hover:bg-surface-muted rounded-lg transition"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -82,7 +82,7 @@ export function Modal({
           </div>
         )}
         {children}
-        {footer && <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">{footer}</div>}
+        {footer && <div className="flex justify-end gap-2 pt-2 border-t border-line">{footer}</div>}
       </div>
     </div>
   );

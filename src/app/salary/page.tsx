@@ -1,14 +1,16 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { DollarSign, Plus, Edit3, Shield, CheckCircle2, History, Calculator } from "lucide-react";
+import { DollarSign, Plus, Edit3, Shield, CheckCircle2, History, Calculator, Upload } from "lucide-react";
 import { getSalaryDataAction } from "@/lib/actions/data";
-import { createSalaryStructureAction } from "@/lib/actions/salary";
+import { createSalaryStructureAction, bulkAssignSalaryStructure } from "@/lib/actions/salary";
 import { formatCurrencyIndian, formatDateIndian } from "@/lib/utils/formatters";
 import { usePermission } from "@/lib/auth/usePermission";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useToast } from "@/components/shared/Toast";
+import { BatchUploadDrawer } from "@/components/shared/batch-import/BatchUploadDrawer";
+import { SalaryStructureBatchSchema } from "@/lib/batch-import/schemas";
 
 interface ComponentItem {
   id: string;
@@ -40,6 +42,8 @@ export default function SalaryManagementPage() {
   const [newCtc, setNewCtc] = useState(840000);
   const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().split("T")[0]);
   const [proRataSplit, setProRataSplit] = useState<{ oldDays: number; newDays: number; oldPay: number; newPay: number; totalGross: number } | null>(null);
+
+  const [showBatchDrawer, setShowBatchDrawer] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -132,12 +136,20 @@ export default function SalaryManagementPage() {
         title="Per-Employee Versioned Salary Structure"
         description="Maintain salary components and effective-dated salary structures with automated mid-month pro-ration calculations."
         actions={
-          <button
-            onClick={handleCalculateProRata}
-            className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-lg border border-emerald-200 transition flex items-center gap-1.5"
-          >
-            <Calculator className="w-4 h-4 text-emerald-600" /> Preview Mid-Month Pro-Ration
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowBatchDrawer(true)}
+              className="px-3.5 py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold rounded-lg transition flex items-center gap-1.5 shadow-xs"
+            >
+              <Upload className="w-4 h-4" /> Batch Upload (.xlsx / .csv)
+            </button>
+            <button
+              onClick={handleCalculateProRata}
+              className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-lg border border-emerald-200 transition flex items-center gap-1.5"
+            >
+              <Calculator className="w-4 h-4 text-emerald-600" /> Preview Mid-Month Pro-Ration
+            </button>
+          </div>
         }
       />
 
@@ -269,6 +281,27 @@ export default function SalaryManagementPage() {
           </div>
         </div>
       </div>
+
+      {/* Shared Batch Upload Drawer */}
+      <BatchUploadDrawer
+        isOpen={showBatchDrawer}
+        onClose={() => setShowBatchDrawer(false)}
+        schema={SalaryStructureBatchSchema}
+        onCommit={bulkAssignSalaryStructure}
+        onSuccess={async () => {
+          const res = await getSalaryDataAction();
+          const rawAssign: any[] = (res as any).assignments || [];
+          setSalaryVersions(rawAssign.map((a: any, idx: number) => ({
+            version_number: idx + 1,
+            annual_ctc: a.annual_ctc || 0,
+            monthly_gross: a.monthly_gross || 0,
+            basic_monthly: a.basic_monthly || 0,
+            effective_from: a.effective_from || "",
+            effective_to: a.effective_to || undefined,
+          })));
+          toast("Salary structures updated successfully from batch upload.");
+        }}
+      />
     </div>
   );
 }

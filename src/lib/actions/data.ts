@@ -200,51 +200,10 @@ export async function getReimbursementDataAction() {
 }
 
 export async function approveReimbursementAction(claimId: string, decision: "approved" | "rejected", approvedAmount?: number) {
-  const csrfError = await validateRequestOrigin();
-  if (csrfError) return { error: csrfError.error };
-
-  const permError = await assertPermission("reimbursement.approve");
-  if (permError) return { error: permError.error };
-
-  const caller = await getAuthenticatedCaller();
-  const supabase = await createClient();
-
-  let deciderId = caller?.employeeId;
-  if (!deciderId) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { data: emp } = await supabase
-        .from("employees")
-        .select("id")
-        .eq("auth_user_id", user.id)
-        .single();
-      deciderId = emp?.id;
-    }
-  }
-
-  if (!deciderId) return { error: "Decider employee record not found" };
-
-  const { data: claim } = await supabase
-    .from("reimbursement_claims")
-    .select("employee_id")
-    .eq("id", claimId)
-    .single();
-
-  if (claim && claim.employee_id === deciderId) {
-    return { error: "Self-approval of reimbursement claims is not permitted." };
-  }
-
-  const { error } = await supabase
-    .from("reimbursement_claims")
-    .update({
-      status: decision === "approved" ? "approved" : "rejected",
-      approved_amount: decision === "approved" ? approvedAmount : undefined,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", claimId);
-
-  if (error) return { error: error.message };
-  return { success: true };
+  const { approveReimbursementClaimAction } = await import("@/lib/actions/reimbursements");
+  const res = await approveReimbursementClaimAction(claimId, decision, approvedAmount);
+  if (!res.success) return { error: res.error };
+  return { success: true, newStatus: res.newStatus };
 }
 
 export async function getEncashmentDataAction() {

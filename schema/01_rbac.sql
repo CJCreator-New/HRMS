@@ -260,6 +260,7 @@ insert into permissions (code, description) values
   ('salary.view.self', 'View own salary structure'),
   ('salary.view.all', 'View all employee salary structures'),
   ('salary.edit', 'Edit salary structures and assignments'),
+  ('salary.bulk_assign', 'Bulk assign salary structures and revisions'),
   ('payroll.view', 'View payroll summary and runs'),
   ('payroll.run', 'Initiate payroll run'),
   ('payroll.reopen', 'Reopen payroll run for revision'),
@@ -268,6 +269,9 @@ insert into permissions (code, description) values
   ('payroll.schedule', 'Manage payroll schedule'),
   ('statutory.view', 'View statutory profiles'),
   ('statutory.edit', 'Manage statutory profiles'),
+  ('statutory.bulk_upsert', 'Bulk upsert employee statutory profiles'),
+  ('department.bulk_assign', 'Bulk assign employee departments and hierarchy'),
+  ('calendar.bulk_assign', 'Bulk assign employee work calendar templates'),
   ('reimbursement.apply.self', 'Submit reimbursement claim'),
   ('reimbursement.view.team', 'View team reimbursement claims'),
   ('reimbursement.view.all', 'View all reimbursement claims'),
@@ -321,7 +325,8 @@ where r.code = 'hr' and p.code in (
   'employee.view.all', 'employee.create', 'employee.edit', 'employee.import', 'employee.deactivate',
   'attendance.view.all', 'attendance.correct.override', 'leave.view.all', 'leave.approve.hr',
   'leave.cancel.approve', 'leave.manage_types', 'leave.encash.approve', 'salary.view.all', 'salary.edit',
-  'statutory.view', 'statutory.edit', 'reimbursement.approve', 'reimbursement.view.all', 'separation.view',
+  'salary.bulk_assign', 'statutory.view', 'statutory.edit', 'statutory.bulk_upsert', 'department.bulk_assign',
+  'calendar.bulk_assign', 'reimbursement.approve', 'reimbursement.view.all', 'separation.view',
   'separation.create', 'separation.edit', 'offboarding.manage', 'ff.create', 'ff.view', 'ff.approve',
   'compoff.credit.manual', 'compoff.revoke', 'attachment.upload', 'attachment.view', 'reports.export',
   'audit.view', 'settings.manage', 'job.view', 'job.rerun'
@@ -331,9 +336,9 @@ where r.code = 'hr' and p.code in (
 insert into role_permissions (role_id, permission_id)
 select r.id, p.id from roles r, permissions p
 where r.code = 'payroll_admin' and p.code in (
-  'salary.view.all', 'salary.edit', 'payroll.view', 'payroll.run', 'payroll.reopen',
+  'salary.view.all', 'salary.edit', 'salary.bulk_assign', 'payroll.view', 'payroll.run', 'payroll.reopen',
   'payroll.finalize', 'payroll.publish', 'payroll.schedule', 'statutory.view', 'statutory.edit',
-  'ff.view', 'reports.export', 'employee.view.all', 'attendance.view.all',
+  'statutory.bulk_upsert', 'ff.view', 'reports.export', 'employee.view.all', 'attendance.view.all',
   'leave.view.all', 'reimbursement.view.all', 'attachment.view'
 ) on conflict do nothing;
 
@@ -341,7 +346,8 @@ where r.code = 'payroll_admin' and p.code in (
 insert into role_permissions (role_id, permission_id)
 select r.id, p.id from roles r, permissions p
 where r.code = 'system_admin' and p.code in (
-  'settings.manage', 'audit.view', 'job.view', 'job.rerun', 'employee.view.all'
+  'settings.manage', 'audit.view', 'job.view', 'job.rerun', 'employee.view.all',
+  'department.bulk_assign', 'calendar.bulk_assign'
 ) on conflict do nothing;
 
 -- Statutory Admin Role Grants

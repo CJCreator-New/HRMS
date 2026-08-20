@@ -181,7 +181,7 @@ export function AuthLatencyMonitor({ attempts, onClearHistory }: AuthLatencyMoni
               unit="ms"
             />
             <Tooltip
-              content={({ active, payload }) => {
+              content={({ active, payload }: any) => {
                 if (active && payload && payload.length) {
                   const data = payload[0].payload as LoginAttemptMetric & { formattedTime: string };
                   const isSuccess = data.status === "success";

@@ -55,10 +55,9 @@ const ROLE_PERMISSIONS_MAP: Record<string, string[]> = {
 // in sync with reality.
 const DELIBERATE_EXTRA_GRANTS: Array<[string, string]> = [
   ["hradmin@company.com", "/"],
-  ["hradmin@company.com", "/permissions"],
+  ["hr.alt@company.com", "/"],
   ["payroll@company.com", "/"],
   ["payroll@company.com", "/calendar"],
-  ["employee.e1@company.com", "/payroll"],
 ];
 
 describe("isMockEmailAllowed", () => {
@@ -82,11 +81,12 @@ describe("isMockEmailAllowed", () => {
     expect(isMockEmailAllowed("manager.m2@company.com", "/salary")).toBe(false);
   });
 
-  it("authenticates the third employee persona (employee.e3) with the pure employee route set", () => {
+  it("authenticates the employee personas with the pure employee route set (no /payroll)", () => {
+    expect(isMockEmailAllowed("employee.e1@company.com", "/salary")).toBe(true);
+    expect(isMockEmailAllowed("employee.e1@company.com", "/leave")).toBe(true);
+    expect(isMockEmailAllowed("employee.e1@company.com", "/payroll")).toBe(false);
     expect(isMockEmailAllowed("employee.e3@company.com", "/salary")).toBe(true);
     expect(isMockEmailAllowed("employee.e3@company.com", "/leave")).toBe(true);
-    // The /payroll over-grant is a documented deliberate extra grant on
-    // employee.e1 only (D2, gap catalog) — it is NOT propagated to e3.
     expect(isMockEmailAllowed("employee.e3@company.com", "/payroll")).toBe(false);
   });
 
@@ -97,9 +97,10 @@ describe("isMockEmailAllowed", () => {
     expect(isMockEmailAllowed("notice.emp@company.com", "/approvals")).toBe(false);
   });
 
-  it("supports fully-restricted personas", () => {
+  it("supports fully-restricted and alternate HR personas", () => {
     expect(isMockEmailAllowed("employee.e2@company.com", "/")).toBe(false);
-    expect(isMockEmailAllowed("hr.alt@company.com", "/approvals")).toBe(false);
+    expect(isMockEmailAllowed("hr.alt@company.com", "/approvals")).toBe(true);
+    expect(isMockEmailAllowed("hr.alt@company.com", "/leave")).toBe(true);
   });
 
   it("denies all routes to lifecycle personas with revoked access", () => {
@@ -121,6 +122,7 @@ describe("resolveMockRolesFromEmail", () => {
     expect(resolveMockRolesFromEmail("sysadmin@company.com")).toEqual({ roles: ["system_admin"], mustChangePassword: false });
     expect(resolveMockRolesFromEmail("multi.hrmgr@company.com")).toEqual({ roles: ["hr", "manager"], mustChangePassword: false });
     expect(resolveMockRolesFromEmail("hradmin@company.com")).toEqual({ roles: ["hr"], mustChangePassword: false });
+    expect(resolveMockRolesFromEmail("hr.alt@company.com")).toEqual({ roles: ["hr"], mustChangePassword: false });
     expect(resolveMockRolesFromEmail("payroll@company.com")).toEqual({ roles: ["payroll_admin"], mustChangePassword: false });
     expect(resolveMockRolesFromEmail("manager.m1@company.com")).toEqual({ roles: ["manager"], mustChangePassword: false });
     expect(resolveMockRolesFromEmail("manager.m2@company.com")).toEqual({ roles: ["manager"], mustChangePassword: false });

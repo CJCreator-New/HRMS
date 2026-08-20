@@ -17,6 +17,7 @@ import {
   createHolidayAction,
   selectOptionalHolidayAction,
   assignCalendarAction,
+  bulkAssignCalendarTemplate,
 } from "@/lib/actions/calendar";
 
 describe("createHolidayAction", () => {
@@ -161,5 +162,152 @@ describe("assignCalendarAction", () => {
       calendar_template_id: "tpl-1",
       effective_from: "2026-08-01",
     });
+  });
+});
+
+describe("bulkAssignCalendarTemplate", () => {
+  beforeEach(() => {
+    mocks.createClient.mockReset();
+    mocks.assertPermission.mockReset();
+    mocks.assertPermission.mockResolvedValue(null);
+  });
+
+  it("assigns calendar template to employee and closes prior open version", async () => {
+    const inserts: Array<{ table: string; payload: any }> = [];
+    const updates: Array<{ table: string; payload: any }> = [];
+
+    const fake = createFakeSupabase({
+      respond: (state) => {
+        if (state.table === "work_calendar_templates" && state.method === "select") {
+          return { data: [{ id: "tpl-5day", code: "DEFAULT_5DAY", name: "Standard 5-Day" }], error: null };
+        }
+        if (state.table === "employees" && state.method === "select") {
+          return { data: { id: "emp-101", employee_code: "EMP-101" }, error: null };
+        }
+        if (state.table === "employee_work_calendar_assignment" && state.method === "select") {
+          return { data: { id: "open-cal", effective_from: "2026-01-01" }, error: null };
+        }
+        if (state.table === "employee_work_calendar_assignment" && state.method === "update") {
+          updates.push({ table: state.table, payload: state.payload });
+          return { data: { id: "open-cal" }, error: null };
+        }
+        if (state.table === "employee_work_calendar_assignment" && state.method === "insert") {
+          inserts.push({ table: state.table, payload: state.payload });
+          return { data: { id: "new-cal", ...(state.payload as object) }, error: null };
+        }
+        return { data: null, error: null };
+      },
+    });
+    mocks.createClient.mockReturnValue(fake);
+
+    const result = await bulkAssignCalendarTemplate([
+      {
+        scope: "employee",
+        target_code: "EMP-101",
+        template_name: "DEFAULT_5DAY",
+        effective_start_date: "2026-09-01",
+      },
+    ]);
+
+    expect(result.success).toBe(true);
+    expect(result.total).toBe(1);
+    expect(result.successCount).toBe(1);
+
+    // Verify closing update
+    expect(updates[0].payload).toEqual({ effective_to: "2026-08-31" });
+
+    // Verify insert
+    expect(inserts[0].payload).toMatchObject({
+      employee_id: "emp-101",
+      calendar_template_id: "tpl-5day",
+      effective_from: "2026-09-01",
+    });
+  });
+
+  it("assigns calendar template by department scope to all active department members", async () => {
+    const inserts: Array<{ table: string; payload: any }> = [];
+
+    const fake = createFakeSupabase({
+      respond: (state) => {
+        if (state.table === "work_calendar_templates" && state.method === "select") {
+          return { data: [{ id: "tpl-5day", code: "DEFAULT_5DAY", name: "Standard 5-Day" }], error: null };
+        }
+        if (state.table === "departments" && state.method === "select") {
+          return { data: { id: "dept-eng", name: "Engineering" }, error: null };
+        }
+        if (state.table === "employee_department_assignment" && state.method === "select") {
+          return {
+            data: [{ employee_id: "emp-1" }, { employee_id: "emp-2" }],
+            error: null,
+          };
+        }
+        if (state.table === "employee_work_calendar_assignment" && state.method === "select") {
+          return { data: null, error: null };
+        }
+        if (state.table === "employee_work_calendar_assignment" && state.method === "insert") {
+          inserts.push({ table: state.table, payload: state.payload });
+          return { data: { id: "cal-ins" }, error: null };
+        }
+        return { data: null, error: null };
+      },
+    });
+    mocks.createClient.mockReturnValue(fake);
+
+    const result = await bulkAssignCalendarTemplate([
+      {
+        scope: "department",
+        target_code: "Engineering",
+        template_name: "DEFAULT_5DAY",
+        effective_start_date: "2026-09-01",
+      },
+    ]);
+
+    expect(result.success).toBe(true);
+    expect(result.successCount).toBe(1);
+    expect(inserts.length).toBe(2);
+    expect(inserts.map((i) => i.payload.employee_id)).toEqual(["emp-1", "emp-2"]);
+  });
+
+  it("rejects unknown calendar template", async () => {
+    const fake = createFakeSupabase({
+      respond: (state) => {
+        if (state.table === "work_calendar_templates" && state.method === "select") {
+          return { data: [{ id: "tpl-1", code: "T1", name: "Template 1" }], error: null };
+        }
+        return { data: null, error: null };
+      },
+    });
+    mocks.createClient.mockReturnValue(fake);
+
+    const result = await bulkAssignCalendarTemplate([
+      {
+        scope: "employee",
+        target_code: "EMP-101",
+        template_name: "NONEXISTENT_TEMPLATE",
+        effective_start_date: "2026-09-01",
+      },
+    ]);
+
+    expect(result.success).toBe(false);
+    expect(result.errorCount).toBe(1);
+    expect(result.errors[0]).toContain("Calendar template 'NONEXISTENT_TEMPLATE' not found");
+  });
+
+  it("blocks unauthorized callers without calendar.bulk_assign", async () => {
+    mocks.assertPermission.mockResolvedValue({ error: "Insufficient permissions: calendar.bulk_assign required" });
+    const fake = createFakeSupabase();
+    mocks.createClient.mockReturnValue(fake);
+
+    const result = await bulkAssignCalendarTemplate([
+      {
+        scope: "employee",
+        target_code: "EMP-101",
+        template_name: "DEFAULT_5DAY",
+        effective_start_date: "2026-09-01",
+      },
+    ]);
+
+    expect(result.success).toBe(false);
+    expect(result.errors[0]).toContain("Insufficient permissions");
   });
 });

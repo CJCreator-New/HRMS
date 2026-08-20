@@ -7,6 +7,7 @@ import { assertPermission } from "@/lib/auth/assertPermission";
 import { checkActionRateLimit } from "@/lib/auth/rate-limit";
 import { writeAuditLogAction } from "@/lib/actions/audit";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
+import type { BatchCommitResult } from "@/lib/batch-import/types";
 
 export async function createEmployeeAction(formData: FormData) {
   const csrfError = await validateRequestOrigin();
@@ -119,17 +120,41 @@ export async function getEmployeesAction(opts: EmployeeQueryOptions = {}) {
   }
 }
 
-export async function importEmployeesCsvAction(rows: Array<{ code: string; name: string; email: string; doj?: string }>) {
+export async function importEmployeesAction(
+  rows: Array<{ code: string; name: string; email: string; doj?: string }>
+): Promise<BatchCommitResult<any>> {
   const csrfError = await validateRequestOrigin();
-  if (csrfError) return { success: false, imported: 0, skipped: 0, errors: [csrfError.error] };
+  if (csrfError) {
+    return {
+      success: false,
+      total: rows.length,
+      successCount: 0,
+      errorCount: rows.length,
+      errors: [csrfError.error],
+    };
+  }
 
   const permError = await assertPermission("employee.import");
-  if (permError) return { success: false, imported: 0, skipped: 0, errors: [permError.error] };
+  if (permError) {
+    return {
+      success: false,
+      total: rows.length,
+      successCount: 0,
+      errorCount: rows.length,
+      errors: [permError.error],
+    };
+  }
 
   const rateCheck = await checkActionRateLimit("admin", "import_employees_csv", 10, 3600000);
   if (!rateCheck.allowed) {
     const mins = Math.ceil(rateCheck.retryAfterMs / 60000);
-    return { success: false, imported: 0, skipped: 0, errors: [`Rate limit exceeded. Please try again in ${mins} minute(s).`] };
+    return {
+      success: false,
+      total: rows.length,
+      successCount: 0,
+      errorCount: rows.length,
+      errors: [`Rate limit exceeded. Please try again in ${mins} minute(s).`],
+    };
   }
 
   const supabase = await createClient();
@@ -138,56 +163,105 @@ export async function importEmployeesCsvAction(rows: Array<{ code: string; name:
   let imported = 0;
   let skipped = 0;
   const errors: string[] = [];
+  const rowResults: BatchCommitResult["rowResults"] = [];
 
-  for (const row of rows) {
-    if (!row.code || !row.name || !row.email) {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNum = i + 1;
+    const code = sanitizeInput(row.code || "").trim();
+    const name = sanitizeInput(row.name || "").trim();
+    const email = sanitizeInput(row.email || "").trim();
+    const doj = row.doj ? row.doj.trim() : new Date().toISOString().split("T")[0];
+
+    if (!code || !name || !email) {
       skipped++;
-      errors.push(`Row missing required field (code, name, email): ${JSON.stringify(row)}`);
+      const msg = `Row #${rowNum}: Missing required field (code, name, email).`;
+      errors.push(msg);
+      rowResults.push({ rowNumber: rowNum, status: "failed", message: msg, data: row });
       continue;
     }
 
     // Generate a temporary password for the imported employee
-    const tempPassword = `Temp${row.code.slice(-4)}@${new Date().getFullYear()}!`;
+    const tempPassword = `Temp${code.slice(-4)}@${new Date().getFullYear()}!`;
 
     // Create auth user first
     const { data: authUser, error: authError } = await adminSupabase.auth.admin.createUser({
-      email: row.email,
+      email,
       password: tempPassword,
       email_confirm: true,
     });
 
     if (authError) {
       skipped++;
-      errors.push(`Failed to create auth user for ${row.code}: ${authError.message}`);
+      const msg = `Row #${rowNum}: Failed to create auth user for ${code}: ${authError.message}`;
+      errors.push(msg);
+      rowResults.push({ rowNumber: rowNum, status: "failed", message: msg, data: row });
       continue;
     }
 
     // Create employee record linked to auth user
     const { error } = await supabase.from("employees").insert({
-      employee_code: row.code,
-      full_name: row.name,
-      email: row.email,
+      employee_code: code,
+      full_name: name,
+      email,
       auth_user_id: authUser.user.id,
-      date_of_joining: row.doj || new Date().toISOString().split("T")[0],
+      date_of_joining: doj,
       status: "invited",
       must_change_password: true,
     });
 
     if (error) {
       skipped++;
-      // Best-effort cleanup: delete auth user if employee record creation fails
       try {
         await adminSupabase.auth.admin.deleteUser(authUser.user.id);
       } catch {
-        // Ignore cleanup errors in test/mock environments
+        // Ignore cleanup errors in mock environments
       }
-      errors.push(`Failed to import ${row.code}: ${error.message}`);
+      const msg = `Row #${rowNum}: Failed to import ${code}: ${error.message}`;
+      errors.push(msg);
+      rowResults.push({ rowNumber: rowNum, status: "failed", message: msg, data: row });
     } else {
       imported++;
+      rowResults.push({
+        rowNumber: rowNum,
+        status: "success",
+        message: `Imported ${name} (${code}) in invited status`,
+        data: row,
+      });
     }
   }
 
-  return { success: true, imported, skipped, errors };
+  if (imported > 0) {
+    await writeAuditLogAction({
+      action: "employee.import",
+      entityType: "employee",
+      metadata: {
+        totalRows: rows.length,
+        successCount: imported,
+        errorCount: skipped,
+        errors: errors.slice(0, 10),
+      },
+    });
+  }
+
+  return {
+    success: skipped === 0,
+    total: rows.length,
+    successCount: imported,
+    errorCount: skipped,
+    errors,
+    rowResults,
+  };
+}
+
+export async function importEmployeesCsvAction(rows: Array<{ code: string; name: string; email: string; doj?: string }>) {
+  const result = await importEmployeesAction(rows);
+  return {
+    success: result.errors.length > 0 && result.successCount === 0 && result.total > 0 ? false : true,
+    imported: result.successCount,
+    skipped: result.errorCount,
+    errors: result.errors,
+  };
 }
 
 export async function toggleEmployeeDeactivationAction(employeeId: string, isDeactivated: boolean) {

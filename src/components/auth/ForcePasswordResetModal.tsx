@@ -54,7 +54,7 @@ export function ForcePasswordResetModal({ isOpen }: { isOpen: boolean }) {
         <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center font-bold">
           <ShieldAlert className="w-6 h-6 text-red-600" aria-hidden="true" />
         </div>
-        <p className="text-xs text-gray-500">First-login password update required for account activation</p>
+        <p className="text-xs text-ink-muted">First-login password update required for account activation</p>
       </div>
 
       {error && (
@@ -75,11 +75,11 @@ export function ForcePasswordResetModal({ isOpen }: { isOpen: boolean }) {
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
           <div>
-            <label htmlFor="newPassInput" className="block font-semibold text-gray-700 mb-1">
+            <label htmlFor="newPassInput" className="block font-semibold text-ink-secondary mb-1">
               New Password *
             </label>
             <div className="relative">
-              <Lock className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" aria-hidden="true" />
+              <Lock className="w-4 h-4 text-ink-faint absolute left-3 top-2.5" aria-hidden="true" />
               <input
                 id="newPassInput"
                 type="password"
@@ -87,17 +87,17 @@ export function ForcePasswordResetModal({ isOpen }: { isOpen: boolean }) {
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="At least 8 characters"
-                className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="w-full pl-9 pr-3 py-2 border border-line-strong rounded-lg focus:ring-2 focus:ring-primary-500 focus:outline-none"
               />
             </div>
           </div>
 
           <div>
-            <label htmlFor="confirmPassInput" className="block font-semibold text-gray-700 mb-1">
+            <label htmlFor="confirmPassInput" className="block font-semibold text-ink-secondary mb-1">
               Confirm New Password *
             </label>
             <div className="relative">
-              <Lock className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" aria-hidden="true" />
+              <Lock className="w-4 h-4 text-ink-faint absolute left-3 top-2.5" aria-hidden="true" />
               <input
                 id="confirmPassInput"
                 type="password"
@@ -105,7 +105,7 @@ export function ForcePasswordResetModal({ isOpen }: { isOpen: boolean }) {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Repeat new password"
-                className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="w-full pl-9 pr-3 py-2 border border-line-strong rounded-lg focus:ring-2 focus:ring-primary-500 focus:outline-none"
               />
             </div>
           </div>
@@ -113,7 +113,7 @@ export function ForcePasswordResetModal({ isOpen }: { isOpen: boolean }) {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition disabled:opacity-50 shadow-xs"
+            className="w-full py-2.5 bg-primary-600 hover:bg-primary-700 text-white font-bold rounded-lg transition disabled:opacity-50 shadow-xs"
           >
             {loading ? "Updating Password..." : "Update Password & Activate Account"}
           </button>
