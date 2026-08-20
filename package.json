@@ -1,0 +1,52 @@
+{
+  "name": "hrms",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "lint": "eslint src",
+    "db:sync": "node scripts/db-apply.mjs",
+    "seed:mock": "node scripts/seed-mock-data.mjs",
+    "test:unit": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test --project=chromium",
+    "test:e2e:p0": "playwright test e2e/specs/smoke e2e/specs/rbac --project=chromium",
+    "test:e2e:full": "playwright test",
+    "test:e2e:rbac": "playwright test e2e/specs/rbac --project=chromium",
+    "test:e2e:nfr": "playwright test e2e/specs/nfr --project=chromium",
+    "test:audit": "playwright test e2e/specs/cross-module e2e/specs/rbac --project=chromium"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.5.2",
+    "@supabase/supabase-js": "^2.48.1",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.2",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.474.0",
+    "next": "^16.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.6.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.1",
+    "@playwright/test": "^1.49.1",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.4",
+    "@types/node": "^20.17.16",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitest/coverage-v8": "^4.1.10",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.0",
+    "jsdom": "^29.1.1",
+    "postcss": "^8.5.1",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.10"
+  }
+}
