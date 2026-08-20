@@ -9,6 +9,7 @@ import {
 import { assertPermission } from "@/lib/auth/assertPermission";
 import { checkActionRateLimit } from "@/lib/auth/rate-limit";
 import { validateRequestOrigin } from "@/lib/security";
+import { writeAuditLogAction } from "@/lib/actions/audit";
 
 export async function validatePayrollLockAction(periodId: string) {
   const csrfError = await validateRequestOrigin();
@@ -54,6 +55,18 @@ export async function reopenPayrollPeriodAction(periodId: string, actorId?: stri
   });
 
   if (error) return { error: error.message };
+
+  try {
+    await writeAuditLogAction({
+      action: "payroll.reopen",
+      entityType: "payroll_periods",
+      entityId: periodId,
+      metadata: { newRevisionId: data, actorId: actId },
+    });
+  } catch {
+    // Non-blocking in mock/test environments
+  }
+
   return { success: true, newRevisionId: data };
 }
 
@@ -78,6 +91,52 @@ export async function finalizePayrollPeriodAction(periodId: string) {
     .update({ status: "finalized" })
     .eq("payroll_period_id", periodId)
     .eq("status", "draft");
+
+  try {
+    await writeAuditLogAction({
+      action: "payroll.finalize",
+      entityType: "payroll_periods",
+      entityId: periodId,
+      newValues: { status: "finalized" },
+    });
+  } catch {
+    // Non-blocking in mock/test environments
+  }
+
+  return { success: true };
+}
+
+export async function publishPayrollPeriodAction(periodId: string) {
+  const csrfError = await validateRequestOrigin();
+  if (csrfError) return csrfError;
+
+  const permError = await assertPermission("payroll.publish");
+  if (permError) return permError;
+
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("payroll_periods")
+    .update({ status: "published" })
+    .eq("id", periodId);
+
+  if (error) return { error: error.message };
+
+  await supabase
+    .from("payroll_revisions")
+    .update({ status: "published" })
+    .eq("payroll_period_id", periodId);
+
+  try {
+    await writeAuditLogAction({
+      action: "payroll.publish",
+      entityType: "payroll_periods",
+      entityId: periodId,
+      newValues: { status: "published" },
+    });
+  } catch {
+    // Non-blocking in mock/test environments
+  }
 
   return { success: true };
 }

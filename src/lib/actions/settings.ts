@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { assertPermission } from "@/lib/auth/assertPermission";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
+import { writeAuditLogAction } from "@/lib/actions/audit";
 
 export async function getCompanySettingsAction() {
   const permError = await assertPermission("settings.manage");
@@ -31,25 +32,39 @@ export async function updateCompanySettingsAction(formData: FormData): Promise<{
 
   const supabase = await createClient();
 
-  const { data: existing } = await supabase.from("company_settings").select("id").limit(1).single();
+  const { data: existing } = await supabase.from("company_settings").select("*").limit(1).single();
 
   if (existing?.id) {
+    const newValues = {
+      company_name: companyName,
+      timezone,
+      currency,
+      currency_symbol: currencySymbol,
+      alternate_hr_approver_id: alternateHrApproverId || null,
+      manager_sla_days: managerSlaDays,
+      notice_period_days_default: noticePeriodDaysDefault,
+      is_configured: true, // Engine unlock gate flag
+      updated_at: new Date().toISOString(),
+    };
+
     const { error } = await supabase
       .from("company_settings")
-      .update({
-        company_name: companyName,
-        timezone,
-        currency,
-        currency_symbol: currencySymbol,
-        alternate_hr_approver_id: alternateHrApproverId || null,
-        manager_sla_days: managerSlaDays,
-        notice_period_days_default: noticePeriodDaysDefault,
-        is_configured: true, // Engine unlock gate flag
-        updated_at: new Date().toISOString(),
-      })
+      .update(newValues)
       .eq("id", existing.id);
 
     if (error) return { success: false, error: error.message };
+
+    try {
+      await writeAuditLogAction({
+        action: "settings.update",
+        entityType: "company_settings",
+        entityId: existing.id,
+        oldValues: existing,
+        newValues,
+      });
+    } catch {
+      // Non-blocking in mock/test environments
+    }
   }
 
   return { success: true };

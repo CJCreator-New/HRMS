@@ -43,31 +43,35 @@ export function SkeletonStatCard() {
   );
 }
 
-/** Skeleton for a DataTable — header + N rows. */
-export function SkeletonTable({ rows = 5 }: { rows?: number }) {
+/** Skeleton for a DataTable — header + N rows of pulsing skeleton blocks. */
+export function DataTableSkeleton({ rows = 5, columns = 5 }: { rows?: number; columns?: number }) {
   return (
-    <div className="bg-surface rounded-xl border border-line shadow-card overflow-hidden">
+    <div className="bg-surface rounded-xl border border-line shadow-card overflow-hidden" data-testid="data-table-skeleton">
       {/* Header */}
       <div className="flex gap-4 px-4 py-3 border-b border-line bg-surface-muted">
-        <Skeleton className="h-3 w-16" />
-        <Skeleton className="h-3 w-24" />
-        <Skeleton className="h-3 w-20" />
-        <Skeleton className="h-3 w-32" />
-        <Skeleton className="h-3 w-16 ml-auto" />
+        {Array.from({ length: columns }).map((_, i) => (
+          <Skeleton key={i} className={`h-3 ${i === columns - 1 ? "w-16 ml-auto" : i === 0 ? "w-32" : "w-24"}`} />
+        ))}
       </div>
       {/* Rows */}
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="flex items-center gap-4 px-4 py-3 border-b border-line last:border-b-0">
-          <Skeleton className="h-3 w-16" />
-          <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-3 w-20" />
-          <Skeleton className="h-3 w-32" />
-          <Skeleton className="h-6 w-16 rounded-full ml-auto" />
+          {Array.from({ length: columns }).map((_, j) => (
+            <Skeleton
+              key={j}
+              className={`h-3 ${
+                j === columns - 1 ? "h-6 w-16 rounded-full ml-auto" : j === 0 ? "w-32" : "w-24"
+              }`}
+            />
+          ))}
         </div>
       ))}
     </div>
   );
 }
+
+/** Backward-compatible alias for DataTableSkeleton. */
+export const SkeletonTable = DataTableSkeleton;
 
 /** Skeleton for a card grid (2–3 columns). */
 export function SkeletonCardGrid({ count = 3 }: { count?: number }) {

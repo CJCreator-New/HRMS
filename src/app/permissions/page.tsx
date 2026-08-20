@@ -22,6 +22,7 @@ interface PermissionRequest {
 
 export default function ShortPermissionsPage() {
   const [requests, setRequests] = useState<PermissionRequest[]>([]);
+  const [monthlyUsedMinutes, setMonthlyUsedMinutes] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -36,6 +37,9 @@ export default function ShortPermissionsPage() {
     setLoading(true);
     setError("");
     const res = await getShortPermissionsAction();
+    if (typeof (res as any).monthlyUsedMinutes === "number") {
+      setMonthlyUsedMinutes((res as any).monthlyUsedMinutes);
+    }
     const mapped: PermissionRequest[] = (res.requests || []).map((r: any) => ({
       id: r.id,
       date: r.permission_date || r.date || "",
@@ -51,6 +55,8 @@ export default function ShortPermissionsPage() {
 
   useEffect(() => { loadRequests(); }, []);
 
+  const remainingQuota = Math.max(0, 120 - monthlyUsedMinutes);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
@@ -62,6 +68,13 @@ export default function ShortPermissionsPage() {
 
     if (duration <= 0 || duration > 120) {
       setNotice("Error: Short permission requests are limited to maximum 2 hours (120 minutes).");
+      setSubmitting(false);
+      setTimeout(() => setNotice(""), 4500);
+      return;
+    }
+
+    if (monthlyUsedMinutes + duration > 120) {
+      setNotice(`Error: Requested ${duration} mins exceeds your remaining monthly quota (${remainingQuota} mins remaining of 120 mins).`);
       setSubmitting(false);
       setTimeout(() => setNotice(""), 4500);
       return;
@@ -86,6 +99,12 @@ export default function ShortPermissionsPage() {
         icon={<Clock className="w-5 h-5 text-indigo-600" aria-hidden="true" />}
         title="Short Permission Requests"
         description="Submit and track short work permissions (2-hour maximum per month quota)."
+        actions={
+          <span className="px-3 py-1 bg-indigo-50 text-indigo-800 font-bold text-xs rounded-full flex items-center gap-1.5 border border-indigo-200">
+            <Clock className="w-3.5 h-3.5 text-indigo-600" aria-hidden="true" />
+            Monthly Quota: {remainingQuota} mins remaining ({monthlyUsedMinutes}/120 mins used)
+          </span>
+        }
       />
 
       {error && <ErrorBanner message={error} onRetry={loadRequests} />}

@@ -18,8 +18,8 @@ function generateNonce(): string {
 function buildCspHeader(nonce: string): string {
   const directives = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://*.jsdelivr.net https://apis.google.com https://*.google.com https://*.gstatic.com https://*.googleapis.com`,
-    `script-src-elem 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://*.jsdelivr.net https://apis.google.com https://*.google.com https://*.gstatic.com https://*.googleapis.com`,
+    `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' https://cdn.jsdelivr.net https://*.jsdelivr.net https://apis.google.com https://*.google.com https://*.gstatic.com https://*.googleapis.com`,
+    `script-src-elem 'self' 'nonce-${nonce}' 'unsafe-inline' https://cdn.jsdelivr.net https://*.jsdelivr.net https://apis.google.com https://*.google.com https://*.gstatic.com https://*.googleapis.com`,
     `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://*.jsdelivr.net`,
     `style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://*.jsdelivr.net`,
     "img-src 'self' data: blob: https://*.supabase.co https://*.googleusercontent.com https://*.unsplash.com https://cdn.jsdelivr.net https://*.jsdelivr.net https://*.gstatic.com https://*.google.com",

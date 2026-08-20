@@ -30,7 +30,7 @@ export interface LeaveRequestView {
   duration_type: "full_day" | "first_half" | "second_half";
   total_days: number;
   reason: string;
-  status: "pending" | "approved" | "rejected" | "cancelled";
+  status: "pending" | "approved" | "rejected" | "cancelled" | "withdrawn";
   approver_name: string;
 }
 

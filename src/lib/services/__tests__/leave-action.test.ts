@@ -252,3 +252,57 @@ describe("creditCompOff & revokeCompOff (C15)", () => {
   });
 });
 
+describe("withdrawLeaveRequestAction", () => {
+  beforeEach(() => {
+    mocks.createClient.mockReset();
+    mocks.assertPermission.mockReset();
+    mocks.assertAnyPermission.mockReset();
+    mocks.assertAnyPermission.mockResolvedValue(null);
+  });
+
+  it("successfully withdraws a pending leave request", async () => {
+    const updates: Array<{ table: string; payload: any }> = [];
+    const fake = createFakeSupabase({
+      respond: (state) => {
+        if (state.table === "leave_requests" && state.method === "select") {
+          return { data: { id: "req-1", employee_id: "emp-1", status: "pending" }, error: null };
+        }
+        if (state.table === "leave_requests" && state.method === "update") {
+          updates.push({ table: state.table, payload: state.payload });
+          return { data: { id: "req-1", status: "withdrawn" }, error: null };
+        }
+        if (state.table === "leave_request_approvals" && state.method === "update") {
+          updates.push({ table: state.table, payload: state.payload });
+          return { data: null, error: null };
+        }
+        return { data: null, error: null };
+      },
+    });
+    mocks.createClient.mockReturnValue(fake);
+
+    const { withdrawLeaveRequestAction } = await import("@/lib/actions/leave");
+    const res: any = await withdrawLeaveRequestAction("req-1");
+
+    expect(res.success).toBe(true);
+    const reqUpdate = updates.find((u) => u.table === "leave_requests");
+    expect(reqUpdate?.payload.status).toBe("withdrawn");
+  });
+
+  it("fails when leave request is not pending", async () => {
+    const fake = createFakeSupabase({
+      respond: (state) => {
+        if (state.table === "leave_requests" && state.method === "select") {
+          return { data: { id: "req-1", employee_id: "emp-1", status: "approved" }, error: null };
+        }
+        return { data: null, error: null };
+      },
+    });
+    mocks.createClient.mockReturnValue(fake);
+
+    const { withdrawLeaveRequestAction } = await import("@/lib/actions/leave");
+    const res: any = await withdrawLeaveRequestAction("req-1");
+
+    expect(res.error).toContain("Only pending leave requests can be withdrawn");
+  });
+});
+

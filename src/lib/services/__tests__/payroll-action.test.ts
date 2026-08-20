@@ -13,7 +13,11 @@ vi.mock("@/lib/auth/assertPermission", () => ({
 }));
 
 import { createFakeSupabase } from "./helpers/fake-supabase";
-import { executeBulkPayrollRunAction } from "@/lib/actions/payroll";
+import {
+  executeBulkPayrollRunAction,
+  finalizePayrollPeriodAction,
+  publishPayrollPeriodAction,
+} from "@/lib/actions/payroll";
 
 const PERIOD = {
   id: "per-1",
@@ -152,5 +156,72 @@ describe("executeBulkPayrollRunAction", () => {
 
     const res = await executeBulkPayrollRunAction("per-1");
     expect(res).toEqual({ error: "Insufficient permissions: payroll.run required" });
+  });
+});
+
+describe("finalizePayrollPeriodAction", () => {
+  beforeEach(() => {
+    mocks.createClient.mockReset();
+    mocks.assertPermission.mockReset();
+    mocks.assertPermission.mockResolvedValue(null);
+  });
+
+  it("updates period and draft revisions to finalized status", async () => {
+    const writes: any[] = [];
+    const fake = createFakeSupabase({
+      respond: (state) => {
+        if (state.method === "update") {
+          writes.push({ table: state.table, payload: state.payload });
+          return { data: null, error: null };
+        }
+        return { data: null, error: null };
+      },
+    });
+    mocks.createClient.mockReturnValue(fake);
+
+    const res = await finalizePayrollPeriodAction("per-1");
+    expect(res).toEqual({ success: true });
+    expect(writes).toEqual([
+      { table: "payroll_periods", payload: { status: "finalized" } },
+      { table: "payroll_revisions", payload: { status: "finalized" } },
+    ]);
+  });
+});
+
+describe("publishPayrollPeriodAction", () => {
+  beforeEach(() => {
+    mocks.createClient.mockReset();
+    mocks.assertPermission.mockReset();
+    mocks.assertPermission.mockResolvedValue(null);
+  });
+
+  it("transitions period and revisions to published status", async () => {
+    const writes: any[] = [];
+    const fake = createFakeSupabase({
+      respond: (state) => {
+        if (state.method === "update") {
+          writes.push({ table: state.table, payload: state.payload });
+          return { data: null, error: null };
+        }
+        return { data: null, error: null };
+      },
+    });
+    mocks.createClient.mockReturnValue(fake);
+
+    const res = await publishPayrollPeriodAction("per-1");
+    expect(res).toEqual({ success: true });
+    expect(writes).toEqual([
+      { table: "payroll_periods", payload: { status: "published" } },
+      { table: "payroll_revisions", payload: { status: "published" } },
+    ]);
+  });
+
+  it("blocks caller without payroll.publish permission", async () => {
+    mocks.assertPermission.mockResolvedValue({ error: "Insufficient permissions: payroll.publish required" });
+    const fake = createFakeSupabase();
+    mocks.createClient.mockReturnValue(fake);
+
+    const res = await publishPayrollPeriodAction("per-1");
+    expect(res).toEqual({ error: "Insufficient permissions: payroll.publish required" });
   });
 });

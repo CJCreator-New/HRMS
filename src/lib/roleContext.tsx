@@ -33,13 +33,17 @@ const RoleContext = createContext<RoleContextType | undefined>(undefined);
 export function RoleProvider({
   children,
   initialRoles = ["employee"],
+  initialUserName = "Employee",
+  initialMustChangePassword = false,
 }: {
   children: React.ReactNode;
   initialRoles?: RoleCode[];
+  initialUserName?: string;
+  initialMustChangePassword?: boolean;
 }) {
   const [assignedRoles, setAssignedRoles] = useState<RoleCode[]>(initialRoles);
-  const [mustChangePassword, setMustChangePassword] = useState(false);
-  const [userName, setUserName] = useState("Admin User");
+  const [mustChangePassword, setMustChangePassword] = useState(initialMustChangePassword);
+  const [userName, setUserName] = useState(initialUserName);
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
   const [activeRole, setActiveRoleState] = useState<RoleCode>(() => {
     if (typeof window !== "undefined") {

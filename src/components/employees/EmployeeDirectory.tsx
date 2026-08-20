@@ -15,6 +15,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { DataTable } from "@/components/shared/DataTable";
 import { useServerTable } from "@/lib/hooks/useServerTable";
 import { PageLoading } from "@/components/shared/PageLoading";
+import { DataTableSkeleton } from "@/components/shared/Skeleton";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import type { EmployeeItem } from "@/lib/services/employees";
@@ -174,7 +175,7 @@ export function EmployeeDirectory({
 
       {/* Directory Content — server-side pagination + sort (M-09) */}
       {loading && employees.length === 0 ? (
-        <PageLoading message="Loading employee directory..." />
+        <DataTableSkeleton rows={5} columns={5} />
       ) : employees.length === 0 ? (
         <EmptyState
           icon={<Users className="w-8 h-8 text-ink-faint" />}

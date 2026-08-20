@@ -69,3 +69,11 @@ describe("PageLoading", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Loading data...");
   });
 });
+
+describe("DataTableSkeleton", () => {
+  it("renders table skeleton with specified rows", async () => {
+    const { DataTableSkeleton } = await import("../Skeleton");
+    render(<DataTableSkeleton rows={4} columns={3} />);
+    expect(screen.getByTestId("data-table-skeleton")).toBeInTheDocument();
+  });
+});

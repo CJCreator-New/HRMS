@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { assertPermission, assertAnyPermission, assertCallerIdentity, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { computeLastWorkingDay, resolveFfApprovalOutcome } from "@/lib/services/offboarding-engine";
 import { validateRequestOrigin } from "@/lib/security";
+import { writeAuditLogAction } from "@/lib/actions/audit";
 
 export async function submitResignationAction(
   employeeId: string,
@@ -100,6 +101,18 @@ export async function rescindResignationAction(separationId: string) {
     .single();
 
   if (error) return { error: error.message };
+
+  try {
+    await writeAuditLogAction({
+      action: "separation.rescind",
+      entityType: "separation_records",
+      entityId: separationId,
+      newValues: { status: "rescinded" },
+    });
+  } catch {
+    // Non-blocking in mock/test environments
+  }
+
   return { success: true, record: data };
 }
 
@@ -151,6 +164,18 @@ export async function toggleClearanceAction(
   );
 
   if (error) return { error: error.message };
+
+  try {
+    await writeAuditLogAction({
+      action: isCleared ? "ff.clearance_approved" : "ff.clearance_revoked",
+      entityType: "ff_clearances",
+      entityId: ff.id,
+      metadata: { department, isCleared, clearedById },
+    });
+  } catch {
+    // Non-blocking in mock/test environments
+  }
+
   return { success: true };
 }
 
@@ -214,6 +239,18 @@ export async function approveFfAction(separationId: string) {
     .eq("id", separationId);
 
   if (sepErr) return { error: sepErr.message };
+
+  try {
+    await writeAuditLogAction({
+      action: "ff.approve",
+      entityType: "ff_settlement_records",
+      entityId: ff.id,
+      newValues: { status: "approved", approved_by: approverId },
+      metadata: { separationId, outcomeStatus: outcome.status, lwdReached: outcome.lwdReached },
+    });
+  } catch {
+    // Non-blocking in mock/test environments
+  }
 
   return { success: true, lwdReached: outcome.lwdReached };
 }

@@ -46,9 +46,13 @@ function AppShellContent({ children }: { children: React.ReactNode }) {
 export function AppShell({
   children,
   initialRoles = ["employee"],
+  initialUserName,
+  initialMustChangePassword,
 }: {
   children: React.ReactNode;
   initialRoles?: RoleCode[];
+  initialUserName?: string;
+  initialMustChangePassword?: boolean;
 }) {
   const pathname = usePathname();
 
@@ -57,7 +61,13 @@ export function AppShell({
 
   return (
     <ToastProvider>
-      <RoleProvider initialRoles={initialRoles}>{shell}</RoleProvider>
+      <RoleProvider
+        initialRoles={initialRoles}
+        initialUserName={initialUserName}
+        initialMustChangePassword={initialMustChangePassword}
+      >
+        {shell}
+      </RoleProvider>
     </ToastProvider>
   );
 }

@@ -246,6 +246,54 @@ export async function rejectLeaveAction(requestId: string, approverId: string, r
   return { success: true, request: data };
 }
 
+export async function withdrawLeaveRequestAction(requestId: string) {
+  const csrfError = await validateRequestOrigin();
+  if (csrfError) return csrfError;
+
+  const permError = await assertAnyPermission(["leave.cancel.self", "leave.apply.self"]);
+  if (permError) return permError;
+
+  const caller = await getAuthenticatedCaller();
+  const supabase = await createClient();
+
+  const { data: leaveRequest, error: fetchErr } = await supabase
+    .from("leave_requests")
+    .select("id, employee_id, status")
+    .eq("id", requestId)
+    .single();
+
+  if (fetchErr || !leaveRequest) return { error: "Leave request not found." };
+
+  if (leaveRequest.status !== "pending") {
+    return { error: "Unable to withdraw: Only pending leave requests can be withdrawn." };
+  }
+
+  if (caller?.employeeId && leaveRequest.employee_id !== caller.employeeId) {
+    const isHrAdmin = await assertPermission("leave.approve.hr");
+    if (isHrAdmin !== null) {
+      return { error: "You can only withdraw your own leave requests." };
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("leave_requests")
+    .update({ status: "withdrawn", updated_at: new Date().toISOString() })
+    .eq("id", requestId)
+    .eq("status", "pending")
+    .select()
+    .single();
+
+  if (error) return { error: error.message };
+
+  await supabase
+    .from("leave_request_approvals")
+    .update({ status: "withdrawn", decided_at: new Date().toISOString() })
+    .eq("leave_request_id", requestId)
+    .eq("status", "pending");
+
+  return { success: true, request: data };
+}
+
 export async function getLeaveDataAction() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

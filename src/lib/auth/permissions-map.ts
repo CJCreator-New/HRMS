@@ -52,6 +52,19 @@ export const ROLE_PERMISSIONS_MAP: Record<RoleCode, string[]> = {
   ],
 };
 
+/**
+ * Dormant Role Permissions Map (GAP-OPEN-06 / D3).
+ *
+ * Defines explicit permission sets for dormant / reserved administrative roles
+ * (`statutory_admin`, `finance_admin`, `it_admin`) that are specified in the
+ * architectural role catalog but not yet exposed in default UI assignment dropdowns.
+ *
+ * Requirements for Role Activation:
+ * 1. Add role code to the `RoleCode` union in `src/lib/types.ts`.
+ * 2. Incorporate role code into `ROLE_PERMISSIONS_MAP` and update migration scripts for role constraints.
+ * 3. Update assignment dropdowns and onboarding forms in the UI to allow assigning this role to employees.
+ * 4. Ensure automated test coverage is added in `src/lib/services/__tests__/rbac-routing.test.ts`.
+ */
 export const DORMANT_ROLE_PERMISSIONS_MAP: Record<string, string[]> = {
   statutory_admin: ["statutory.view", "statutory.edit", "statutory.bulk_upsert"],
   finance_admin: ["salary.view.all", "salary.bulk_assign", "payroll.view", "statutory.view"],

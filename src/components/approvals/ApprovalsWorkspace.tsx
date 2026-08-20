@@ -152,7 +152,11 @@ export function ApprovalsWorkspace({
         setItems(mapped);
         setTotal(res.total ?? 0);
         // F10: derive pending count from the unified response (no separate fetch)
-        setPendingCount(mapped.filter((m) => m.status === "pending").length);
+        if (typeof res.pendingCount === "number") {
+          setPendingCount(res.pendingCount);
+        } else {
+          setPendingCount(mapped.filter((m) => m.status === "pending").length);
+        }
         // Drop selections for rows no longer on this page / pending.
         setSelectedIds((prev) => {
           const valid = new Set(mapped.filter((m) => m.status === "pending").map((m) => m.id));
@@ -528,48 +532,56 @@ export function ApprovalsWorkspace({
           ) : undefined
         }
       >
-        {detailItem && (
-          <>
-            <div className="bg-surface-muted p-4 rounded-lg space-y-2 text-xs">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="font-bold text-ink">{detailItem.employee_name}</p>
-                  <p className="text-[10px] font-mono text-ink-muted">{detailItem.employee_code}</p>
-                </div>
-                <StatusBadge status={detailItem.status} />
-              </div>
-              <div className="flex items-center gap-2 pt-2 border-t border-line">
-                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase border ${MODULE_BADGE_CLASSES[detailItem.module] || "bg-surface-muted text-ink-secondary border-line"}`}>
-                  {detailItem.module}
-                </span>
-                <span className="font-semibold text-ink">{detailItem.title}</span>
-              </div>
-              <p className="text-[11px] text-ink-muted">
-                Submitted: {formatDateIndian(detailItem.created_at)}
-              </p>
-            </div>
+        {detailItem && (() => {
+          const isDrawerParental =
+            detailItem.module === "leave" &&
+            (detailItem.title.toLowerCase().includes("maternity") ||
+              detailItem.title.toLowerCase().includes("paternity"));
+          const drawerDisplayTitle = isDrawerParental && !isHrAdmin ? "Parental Leave Request" : detailItem.title;
 
-            {detailLoading ? (
-              <PageLoading message="Loading request details..." />
-            ) : detailFields.length > 0 ? (
-              <dl data-testid="approval-detail-fields" className="space-y-2 text-xs">
-                {detailFields.map((f) => (
-                  <div
-                    key={f.label}
-                    className="flex items-start justify-between gap-4 border-b border-line pb-2"
-                  >
-                    <dt className="font-semibold text-ink-muted shrink-0">{f.label}</dt>
-                    <dd className="text-right font-medium text-ink break-words">{f.value}</dd>
+          return (
+            <>
+              <div className="bg-surface-muted p-4 rounded-lg space-y-2 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="font-bold text-ink">{detailItem.employee_name}</p>
+                    <p className="text-[10px] font-mono text-ink-muted">{detailItem.employee_code}</p>
                   </div>
-                ))}
-              </dl>
-            ) : (
-              <p className="text-xs text-ink-muted">
-                No additional detail is available for this request type.
-              </p>
-            )}
-          </>
-        )}
+                  <StatusBadge status={detailItem.status} />
+                </div>
+                <div className="flex items-center gap-2 pt-2 border-t border-line">
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase border ${MODULE_BADGE_CLASSES[detailItem.module] || "bg-surface-muted text-ink-secondary border-line"}`}>
+                    {detailItem.module}
+                  </span>
+                  <span className="font-semibold text-ink">{drawerDisplayTitle}</span>
+                </div>
+                <p className="text-[11px] text-ink-muted">
+                  Submitted: {formatDateIndian(detailItem.created_at)}
+                </p>
+              </div>
+
+              {detailLoading ? (
+                <PageLoading message="Loading request details..." />
+              ) : detailFields.length > 0 ? (
+                <dl data-testid="approval-detail-fields" className="space-y-2 text-xs">
+                  {detailFields.map((f) => (
+                    <div
+                      key={f.label}
+                      className="flex items-start justify-between gap-4 border-b border-line pb-2"
+                    >
+                      <dt className="font-semibold text-ink-muted shrink-0">{f.label}</dt>
+                      <dd className="text-right font-medium text-ink break-words">{f.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="text-xs text-ink-muted">
+                  No additional detail is available for this request type.
+                </p>
+              )}
+            </>
+          );
+        })()}
       </Drawer>
     </div>
   );

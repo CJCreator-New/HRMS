@@ -2,12 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
+  assertPermission: vi.fn(),
   assertAnyPermission: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
 vi.mock("@/lib/auth/assertPermission", () => ({
-  assertPermission: vi.fn(async () => null),
+  assertPermission: mocks.assertPermission,
   assertAnyPermission: mocks.assertAnyPermission,
 }));
 
@@ -16,6 +17,7 @@ import {
   getPendingApprovalsCountAction,
   getUnifiedApprovalsAction,
   decideApprovalAction,
+  getApprovalDetailAction,
 } from "@/lib/actions/approvals";
 
 describe("getPendingApprovalsCountAction", () => {
@@ -245,3 +247,83 @@ describe("decideApprovalAction", () => {
     expect(claimUpdate?.payload.status).toBe("approved");
   });
 });
+
+describe("getApprovalDetailAction", () => {
+  beforeEach(() => {
+    mocks.createClient.mockReset();
+    mocks.assertAnyPermission.mockReset();
+    mocks.assertPermission.mockReset();
+    mocks.assertAnyPermission.mockResolvedValue(null);
+  });
+
+  it("redacts maternity leave details when caller lacks leave.view.all", async () => {
+    mocks.assertPermission.mockResolvedValue({ error: "Unauthorized" });
+    const fake = createFakeSupabase({
+      respond: (state) => {
+        if (state.table === "leave_requests" && state.method === "select") {
+          return {
+            data: {
+              start_date: "2026-09-01",
+              end_date: "2026-11-30",
+              total_days: 90,
+              duration_type: "full_day",
+              reason: "Maternity delivery and postnatal recovery",
+              created_at: "2026-08-15T10:00:00.000Z",
+              leave_types: { name: "Maternity Leave", code: "MATERNITY" },
+            },
+            error: null,
+          };
+        }
+        return { data: null, error: null };
+      },
+    });
+    mocks.createClient.mockReturnValue(fake);
+
+    const res: any = await getApprovalDetailAction("leave", "lr-1");
+    expect(res.success).toBe(true);
+    expect(res.detail).toEqual([
+      { label: "Leave Type", value: "Parental Leave" },
+      { label: "From", value: "01-Sep-2026" },
+      { label: "To", value: "30-Nov-2026" },
+      { label: "Duration", value: "90 day(s) (full_day)" },
+      { label: "Reason", value: "[Confidential Medical Reason Redacted]" },
+      { label: "Submitted", value: "15-Aug-2026" },
+    ]);
+  });
+
+  it("does not redact maternity leave details when caller has leave.view.all", async () => {
+    mocks.assertPermission.mockResolvedValue(null);
+    const fake = createFakeSupabase({
+      respond: (state) => {
+        if (state.table === "leave_requests" && state.method === "select") {
+          return {
+            data: {
+              start_date: "2026-09-01",
+              end_date: "2026-11-30",
+              total_days: 90,
+              duration_type: "full_day",
+              reason: "Maternity delivery and postnatal recovery",
+              created_at: "2026-08-15T10:00:00.000Z",
+              leave_types: { name: "Maternity Leave", code: "MATERNITY" },
+            },
+            error: null,
+          };
+        }
+        return { data: null, error: null };
+      },
+    });
+    mocks.createClient.mockReturnValue(fake);
+
+    const res: any = await getApprovalDetailAction("leave", "lr-1");
+    expect(res.success).toBe(true);
+    expect(res.detail).toEqual([
+      { label: "Leave Type", value: "Maternity Leave" },
+      { label: "From", value: "01-Sep-2026" },
+      { label: "To", value: "30-Nov-2026" },
+      { label: "Duration", value: "90 day(s) (full_day)" },
+      { label: "Reason", value: "Maternity delivery and postnatal recovery" },
+      { label: "Submitted", value: "15-Aug-2026" },
+    ]);
+  });
+});
+

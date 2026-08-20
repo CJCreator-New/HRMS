@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { DollarSign, Plus, Edit3, Shield, CheckCircle2, History, Calculator, Upload } from "lucide-react";
+import { DollarSign, Plus, Edit3, Shield, CheckCircle2, History, Calculator, Upload, User } from "lucide-react";
 import { getSalaryDataAction } from "@/lib/actions/data";
 import { createSalaryStructureAction, bulkAssignSalaryStructure } from "@/lib/actions/salary";
 import { formatCurrencyIndian, formatDateIndian } from "@/lib/utils/formatters";
@@ -32,11 +32,18 @@ interface SalaryVersion {
   effective_to?: string;
 }
 
+interface EmployeeOption {
+  id: string;
+  full_name: string;
+  employee_code: string;
+}
+
 export default function SalaryManagementPage() {
   const { can, isManager } = usePermission();
   const { toast } = useToast();
   const [components, setComponents] = useState<ComponentItem[]>([]);
   const [salaryVersions, setSalaryVersions] = useState<SalaryVersion[]>([]);
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [newCtc, setNewCtc] = useState(840000);
@@ -45,31 +52,38 @@ export default function SalaryManagementPage() {
 
   const [showBatchDrawer, setShowBatchDrawer] = useState(false);
 
+  const loadData = async (targetEmpId?: string) => {
+    setLoading(true);
+    const res = await getSalaryDataAction(targetEmpId);
+    if ((res as any).employeeId) {
+      setEmployeeId((res as any).employeeId);
+    }
+    if ((res as any).employees?.length) {
+      setEmployees((res as any).employees);
+    }
+    const rawComps: any[] = (res as any).components || [];
+    setComponents(rawComps.map((c: any) => ({
+      id: c.id, code: c.code, name: c.name,
+      type: c.component_type || "earning",
+      calc_type: c.calculation_type || "flat_amount",
+      is_taxable: c.is_taxable || false,
+      is_pf: c.is_pf_applicable || false,
+      is_esi: c.is_esi_applicable || false,
+    })));
+    const rawAssign: any[] = (res as any).assignments || [];
+    setSalaryVersions(rawAssign.map((a: any, idx: number) => ({
+      version_number: idx + 1,
+      annual_ctc: a.annual_ctc || 0,
+      monthly_gross: a.monthly_gross || 0,
+      basic_monthly: a.basic_monthly || 0,
+      effective_from: a.effective_from || "",
+      effective_to: a.effective_to || undefined,
+    })));
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const load = async () => {
-      const res = await getSalaryDataAction();
-      setEmployeeId((res as any).employeeId || null);
-      const rawComps: any[] = (res as any).components || [];
-      setComponents(rawComps.map((c: any) => ({
-        id: c.id, code: c.code, name: c.name,
-        type: c.component_type || "earning",
-        calc_type: c.calculation_type || "flat_amount",
-        is_taxable: c.is_taxable || false,
-        is_pf: c.is_pf_applicable || false,
-        is_esi: c.is_esi_applicable || false,
-      })));
-      const rawAssign: any[] = (res as any).assignments || [];
-      setSalaryVersions(rawAssign.map((a: any, idx: number) => ({
-        version_number: idx + 1,
-        annual_ctc: a.annual_ctc || 0,
-        monthly_gross: a.monthly_gross || 0,
-        basic_monthly: a.basic_monthly || 0,
-        effective_from: a.effective_from || "",
-        effective_to: a.effective_to || undefined,
-      })));
-      setLoading(false);
-    };
-    load();
+    loadData();
   }, []);
 
   const canViewAll = can("salary.view.all");
@@ -153,6 +167,34 @@ export default function SalaryManagementPage() {
         }
       />
 
+      {/* Employee Selector for HR Admin / Salary View All */}
+      {canViewAll && employees.length > 0 && (
+        <div className="bg-surface p-4 rounded-xl border border-line shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs font-semibold text-ink">
+            <User className="w-4 h-4 text-primary-600" />
+            <span>Select Employee:</span>
+          </div>
+          <div className="w-full sm:w-80">
+            <select
+              value={employeeId || ""}
+              onChange={(e) => {
+                const targetId = e.target.value;
+                setEmployeeId(targetId);
+                loadData(targetId);
+              }}
+              className="w-full text-xs border border-line-strong rounded-lg px-3 py-2 bg-surface text-ink focus:outline-none focus:ring-2 focus:ring-primary-500"
+              aria-label="Select Employee"
+            >
+              {employees.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.employee_code} — {emp.full_name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
+
       {/* Pro-Rata Preview Banner */}
       {proRataSplit && (
         <div className="bg-primary-50 border border-primary-200 text-primary-900 p-5 rounded-xl text-xs space-y-2">
@@ -184,43 +226,45 @@ export default function SalaryManagementPage() {
         {/* Version History & Builder */}
         <div className="lg:col-span-2 space-y-6">
           {/* Salary Revision Form */}
-          <div className="bg-surface p-5 rounded-xl border border-line shadow-card space-y-4">
-            <h3 className="text-sm font-bold text-ink flex items-center gap-2 border-b border-line pb-3">
-              <Edit3 className="w-4 h-4 text-emerald-600" /> Revise Salary Structure (Creates Version v{(latestVersion?.version_number ?? 0) + 1})
-            </h3>
+          {can("salary.edit") && (
+            <div className="bg-surface p-5 rounded-xl border border-line shadow-card space-y-4">
+              <h3 className="text-sm font-bold text-ink flex items-center gap-2 border-b border-line pb-3">
+                <Edit3 className="w-4 h-4 text-emerald-600" /> Revise Salary Structure (Creates Version v{(latestVersion?.version_number ?? 0) + 1})
+              </h3>
 
-            <form onSubmit={handleCreateSalaryVersion} className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-              <div>
-                <label className="block font-semibold text-ink-secondary mb-1">New Annual CTC (INR) *</label>
-                <input
-                  type="number"
-                  step="10000"
-                  required
-                  value={newCtc}
-                  onChange={(e) => setNewCtc(parseFloat(e.target.value) || 0)}
-                  className="w-full border border-line-strong rounded-lg px-3 py-2 font-mono"
-                />
-              </div>
-              <div>
-                <label className="block font-semibold text-ink-secondary mb-1">Effective From Date *</label>
-                <input
-                  type="date"
-                  required
-                  value={effectiveDate}
-                  onChange={(e) => setEffectiveDate(e.target.value)}
-                  className="w-full border border-line-strong rounded-lg px-3 py-2"
-                />
-              </div>
-              <div className="flex items-end">
-                <button
-                  type="submit"
-                  className="w-full py-2 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition"
-                >
-                  Record Salary Revision
-                </button>
-              </div>
-            </form>
-          </div>
+              <form onSubmit={handleCreateSalaryVersion} className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                <div>
+                  <label className="block font-semibold text-ink-secondary mb-1">New Annual CTC (INR) *</label>
+                  <input
+                    type="number"
+                    step="10000"
+                    required
+                    value={newCtc}
+                    onChange={(e) => setNewCtc(parseFloat(e.target.value) || 0)}
+                    className="w-full border border-line-strong rounded-lg px-3 py-2 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-ink-secondary mb-1">Effective From Date *</label>
+                  <input
+                    type="date"
+                    required
+                    value={effectiveDate}
+                    onChange={(e) => setEffectiveDate(e.target.value)}
+                    className="w-full border border-line-strong rounded-lg px-3 py-2"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <button
+                    type="submit"
+                    className="w-full py-2 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition"
+                  >
+                    Record Salary Revision
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
 
           {/* Version History Log */}
           <div className="bg-surface rounded-xl border border-line shadow-card p-5 space-y-3">
@@ -289,16 +333,7 @@ export default function SalaryManagementPage() {
         schema={SalaryStructureBatchSchema}
         onCommit={bulkAssignSalaryStructure}
         onSuccess={async () => {
-          const res = await getSalaryDataAction();
-          const rawAssign: any[] = (res as any).assignments || [];
-          setSalaryVersions(rawAssign.map((a: any, idx: number) => ({
-            version_number: idx + 1,
-            annual_ctc: a.annual_ctc || 0,
-            monthly_gross: a.monthly_gross || 0,
-            basic_monthly: a.basic_monthly || 0,
-            effective_from: a.effective_from || "",
-            effective_to: a.effective_to || undefined,
-          })));
+          await loadData(employeeId || undefined);
           toast("Salary structures updated successfully from batch upload.");
         }}
       />

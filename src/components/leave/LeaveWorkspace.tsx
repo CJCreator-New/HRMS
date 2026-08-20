@@ -9,12 +9,14 @@ import {
   approveLeaveAction,
   rejectLeaveAction,
   requestCompOffAction,
+  withdrawLeaveRequestAction,
 } from "@/lib/actions/leave";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { useToast } from "@/components/shared/Toast";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { DataTable } from "@/components/shared/DataTable";
+import { DataTableSkeleton } from "@/components/shared/Skeleton";
 import { formatDateIndian } from "@/lib/utils/formatters";
 import type { LeaveAllocationView, LeaveRequestView } from "@/lib/services/leave";
 
@@ -131,6 +133,19 @@ export function LeaveWorkspace({
             Review remaining approvals →
           </Link>
         </span>
+      );
+      refresh();
+    }
+  };
+
+  const handleWithdrawLeave = async (id: string) => {
+    const res = await withdrawLeaveRequestAction(id);
+    if ("error" in res && res.error) {
+      toast(`Error: ${res.error}`, "error");
+    } else {
+      toast("Leave request withdrawn successfully.");
+      setRequests((prev) =>
+        prev.map((req) => (req.id === id ? { ...req, status: "withdrawn" } : req))
       );
       refresh();
     }
@@ -278,6 +293,18 @@ export function LeaveWorkspace({
                 {startDate && endDate && endDate < startDate && (
                   <p className="text-[11px] text-red-600 mt-1">End date cannot be before start date.</p>
                 )}
+                {startDate && endDate && endDate >= startDate && requests.some(
+                  (r) =>
+                    r.status !== "rejected" &&
+                    r.status !== "cancelled" &&
+                    r.status !== "withdrawn" &&
+                    startDate <= r.end_date &&
+                    endDate >= r.start_date
+                ) && (
+                  <p className="text-[11px] text-amber-600 font-semibold mt-1 flex items-center gap-1">
+                    ⚠️ Selected date range overlaps with an existing leave request.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -379,14 +406,15 @@ export function LeaveWorkspace({
             />
           }
           renderRow={(r: LeaveRequestView) => {
-            const isMaternity = r.leave_type_code === "MATERNITY";
-            const displayReason = isMaternity && viewAsManager ? "Medical Leave (Confidential Reason Masked)" : r.reason;
+            const isParental = r.leave_type_code === "MATERNITY" || r.leave_type_code === "PATERNITY";
+            const displayReason = isParental && viewAsManager ? "Medical Leave (Confidential Reason Masked)" : r.reason;
+            const displayTypeName = isParental && viewAsManager ? "Parental Leave" : r.leave_type_name;
 
             return (
               <tr key={r.id} className="hover:bg-surface-muted/50">
                 <td className="px-4 py-3">
                   <p className="font-bold text-ink">{r.employee_name}</p>
-                  <p className="text-[10px] font-mono text-ink-muted">{r.leave_type_name}</p>
+                  <p className="text-[10px] font-mono text-ink-muted">{displayTypeName}</p>
                 </td>
                 <td className="px-4 py-3 font-mono text-ink-secondary tabular-nums">
                   {formatDateIndian(r.start_date)} &rarr; {formatDateIndian(r.end_date)}
@@ -398,24 +426,30 @@ export function LeaveWorkspace({
                 </td>
                 <td className="px-4 py-3 text-right space-x-2">
                   {r.status === "pending" ? (
-                    canApprove ? (
-                      <>
-                        <button
-                          onClick={() => handleDecideLeave(r.id, "approved")}
-                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => setRejectTarget(r)}
-                          className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300"
-                        >
-                          Reject
-                        </button>
-                      </>
-                    ) : (
-                      <span className="text-amber-700 font-semibold text-[11px] bg-amber-50 px-2 py-0.5 rounded">Read-Only</span>
-                    )
+                    <>
+                      {canApprove && (
+                        <>
+                          <button
+                            onClick={() => handleDecideLeave(r.id, "approved")}
+                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => setRejectTarget(r)}
+                            className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300"
+                          >
+                            Reject
+                          </button>
+                        </>
+                      )}
+                      <button
+                        onClick={() => handleWithdrawLeave(r.id)}
+                        className="px-2.5 py-1 bg-surface-muted hover:bg-red-50 text-red-600 border border-line rounded text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300"
+                      >
+                        Withdraw
+                      </button>
+                    </>
                   ) : (
                     <span className="text-ink-faint font-medium capitalize">{r.status}</span>
                   )}

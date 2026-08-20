@@ -68,11 +68,21 @@ export async function getUnifiedApprovalsAction(opts: ApprovalsQueryOptions = {}
   }
 
   const { data, error, count } = await query;
-  if (error) return { error: error.message, items: [], total: 0 };
+  if (error) return { error: error.message, items: [], total: 0, pendingCount: 0 };
 
   const mappedItems = (data || []).map((row: any) => mapApprovalRowToItem(row));
 
-  return { items: mappedItems, total: count || 0 };
+  // Count total pending items across all pages for the active filter
+  let pendingCount = count || 0;
+  if (data && data.some((r: any) => r.status !== "pending")) {
+    const { count: pendingTotal } = await supabase
+      .from("v_pending_approvals_dashboard")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "pending");
+    pendingCount = pendingTotal || 0;
+  }
+
+  return { items: mappedItems, total: count || 0, pendingCount };
 }
 
 export async function decideApprovalAction(
@@ -264,16 +274,36 @@ export async function getApprovalDetailAction(module: string, recordId: string) 
     if (module === "leave") {
       const { data, error } = await supabase
         .from("leave_requests")
-        .select("start_date, end_date, total_days, duration_type, reason, created_at, leave_types(name)")
+        .select("start_date, end_date, total_days, duration_type, reason, created_at, leave_types(name, code)")
         .eq("id", recordId)
         .single();
       if (error) return { error: error.message };
+
+      const rawTypeName = (data as any)?.leave_types?.name || "—";
+      const rawTypeCode = ((data as any)?.leave_types?.code || "").toUpperCase();
+      const isParental =
+        rawTypeCode === "MATERNITY" ||
+        rawTypeCode === "PATERNITY" ||
+        rawTypeName.toLowerCase().includes("maternity") ||
+        rawTypeName.toLowerCase().includes("paternity");
+
+      let displayTypeName = rawTypeName;
+      let displayReason = (data as any)?.reason || "—";
+
+      if (isParental) {
+        const canViewAll = (await assertPermission("leave.view.all")) === null;
+        if (!canViewAll) {
+          displayTypeName = "Parental Leave";
+          displayReason = "[Confidential Medical Reason Redacted]";
+        }
+      }
+
       fields = [
-        { label: "Leave Type", value: (data as any)?.leave_types?.name || "—" },
+        { label: "Leave Type", value: displayTypeName },
         { label: "From", value: fmtDate((data as any)?.start_date) },
         { label: "To", value: fmtDate((data as any)?.end_date) },
         { label: "Duration", value: `${(data as any)?.total_days ?? "—"} day(s) (${(data as any)?.duration_type || "—"})` },
-        { label: "Reason", value: (data as any)?.reason || "—" },
+        { label: "Reason", value: displayReason },
         { label: "Submitted", value: fmtDate((data as any)?.created_at) },
       ];
     } else if (module === "attendance") {

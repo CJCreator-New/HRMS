@@ -41,11 +41,11 @@ export default async function ApprovalsPage() {
       created_at: i.submitted_date || "",
     }));
     initialTotal = res.total ?? 0;
-    // Derive pending count from the response (server-side, no extra query).
-    pendingCount = initialItems.filter((i) => i.status === "pending").length;
+    pendingCount = res.pendingCount ?? 0;
   } catch {
     initialItems = [];
     initialTotal = 0;
+    pendingCount = 0;
   }
 
   return (

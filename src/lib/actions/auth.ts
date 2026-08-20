@@ -296,15 +296,57 @@ export async function changePasswordAction(formData: FormData) {
     return { error: updateError.message };
   }
 
-  // Update employee record status from invited to active per ADR 0001
-  await supabase
+  // Fetch employee record to check current status and existing roles
+  const { data: emp } = await supabase
     .from("employees")
-    .update({
-      must_change_password: false,
-      status: "active",
-      activated_at: new Date().toISOString(),
-    })
-    .eq("auth_user_id", user.id);
+    .select("id, status")
+    .eq("auth_user_id", user.id)
+    .single();
+
+  if (emp) {
+    // If activating an invited employee, preserve existing roles or assign default 'employee' role if none assigned
+    if (emp.status === "invited") {
+      const { data: existingRoles } = await supabase
+        .from("employee_roles")
+        .select("id")
+        .eq("employee_id", emp.id);
+
+      if (!existingRoles || existingRoles.length === 0) {
+        const { data: defaultRole } = await supabase
+          .from("roles")
+          .select("id")
+          .eq("code", "employee")
+          .single();
+
+        if (defaultRole) {
+          await supabase.from("employee_roles").insert({
+            employee_id: emp.id,
+            role_id: defaultRole.id,
+          });
+        }
+      }
+    }
+
+    // Update employee record status from invited to active per ADR 0001
+    await supabase
+      .from("employees")
+      .update({
+        must_change_password: false,
+        status: "active",
+        activated_at: new Date().toISOString(),
+      })
+      .eq("id", emp.id);
+  } else {
+    // Fallback if no employee row matched yet
+    await supabase
+      .from("employees")
+      .update({
+        must_change_password: false,
+        status: "active",
+        activated_at: new Date().toISOString(),
+      })
+      .eq("auth_user_id", user.id);
+  }
 
   return { success: true };
 }

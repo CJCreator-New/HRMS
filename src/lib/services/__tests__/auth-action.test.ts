@@ -146,6 +146,89 @@ describe("changePasswordAction", () => {
     });
   });
 
+  it("preserves pre-assigned roles when activating an invited employee", async () => {
+    const roleInserts: any[] = [];
+    const updates: Array<{ payload: any }> = [];
+
+    const fake: any = withAuthExtras(createFakeSupabase({
+      user: { id: "auth-1" },
+      respond: (state) => {
+        if (state.table === "employees" && state.method === "select") {
+          return { data: { id: "emp-1", status: "invited" }, error: null };
+        }
+        if (state.table === "employee_roles" && state.method === "select") {
+          return {
+            data: [
+              { id: "er-1", role_id: "role-mgr" },
+              { id: "er-2", role_id: "role-hr" },
+            ],
+            error: null,
+          };
+        }
+        if (state.table === "employee_roles" && state.method === "insert") {
+          roleInserts.push(state.payload);
+          return { data: null, error: null };
+        }
+        if (state.table === "employees" && state.method === "update") {
+          updates.push({ payload: state.payload });
+          return { data: null, error: null };
+        }
+        return { data: null, error: null };
+      },
+    }));
+    mocks.createClient.mockReturnValue(fake);
+
+    const fd = new FormData();
+    fd.set("newPassword", "NewPassword123!");
+    await expect(changePasswordAction(fd)).resolves.toEqual({ success: true });
+    expect(fake.auth.updateUser).toHaveBeenCalledWith({ password: "NewPassword123!" });
+    // Should NOT insert default role because pre-assigned roles exist
+    expect(roleInserts.length).toBe(0);
+    expect(updates[0].payload).toMatchObject({
+      must_change_password: false,
+      status: "active",
+    });
+  });
+
+  it("assigns default employee role only if no pre-assigned roles exist", async () => {
+    const roleInserts: any[] = [];
+    const updates: Array<{ payload: any }> = [];
+
+    const fake: any = withAuthExtras(createFakeSupabase({
+      user: { id: "auth-1" },
+      respond: (state) => {
+        if (state.table === "employees" && state.method === "select") {
+          return { data: { id: "emp-2", status: "invited" }, error: null };
+        }
+        if (state.table === "employee_roles" && state.method === "select") {
+          return { data: [], error: null };
+        }
+        if (state.table === "roles" && state.method === "select") {
+          return { data: { id: "role-emp", code: "employee" }, error: null };
+        }
+        if (state.table === "employee_roles" && state.method === "insert") {
+          roleInserts.push(state.payload);
+          return { data: null, error: null };
+        }
+        if (state.table === "employees" && state.method === "update") {
+          updates.push({ payload: state.payload });
+          return { data: null, error: null };
+        }
+        return { data: null, error: null };
+      },
+    }));
+    mocks.createClient.mockReturnValue(fake);
+
+    const fd = new FormData();
+    fd.set("newPassword", "NewPassword123!");
+    await expect(changePasswordAction(fd)).resolves.toEqual({ success: true });
+    expect(roleInserts.length).toBe(1);
+    expect(roleInserts[0]).toEqual({
+      employee_id: "emp-2",
+      role_id: "role-emp",
+    });
+  });
+
   it("returns an error for an unauthenticated session", async () => {
     const fake = createFakeSupabase({ user: null });
     withAuthExtras(fake);

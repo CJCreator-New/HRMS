@@ -13,16 +13,23 @@ import {
   Loader2,
   DollarSign,
   FileSpreadsheet,
+  Send,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/shared/Toast";
 import { formatCurrencyIndian } from "@/lib/utils/formatters";
 import { runPayrollAction } from "@/lib/actions/data";
-import { finalizePayrollPeriodAction, reopenPayrollPeriodAction, validatePayrollLockAction } from "@/lib/actions/payroll";
+import {
+  finalizePayrollPeriodAction,
+  publishPayrollPeriodAction,
+  reopenPayrollPeriodAction,
+  validatePayrollLockAction,
+} from "@/lib/actions/payroll";
 import { PAYROLL_STEPS, payrollStepIndex } from "@/lib/services/workflow-steps";
 import { PageLoading } from "@/components/shared/PageLoading";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Modal } from "@/components/shared/Modal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -52,6 +59,7 @@ export function PayrollWorkspace({ initialPeriods, initialPayslips }: PayrollWor
   const [activePeriod, setActivePeriod] = useState<PayrollPeriod | null>(initialPeriods[0] ?? null);
   const [lockError, setLockError] = useState("");
   const [processing, setProcessing] = useState(false);
+  const [confirmReopen, setConfirmReopen] = useState(false);
   const [selectedPayslip, setSelectedPayslip] = useState<PayslipSummary | null>(null);
 
   // Sync when the server re-renders with fresh data after a mutation.
@@ -77,7 +85,7 @@ export function PayrollWorkspace({ initialPeriods, initialPayslips }: PayrollWor
   const refresh = () => router.refresh();
 
   const handleRunPayroll = async () => {
-    if (!activePeriod) return;
+    if (!activePeriod || processing) return;
     setProcessing(true);
     setLockError("");
     const res = await runPayrollAction(activePeriod.id);
@@ -98,16 +106,19 @@ export function PayrollWorkspace({ initialPeriods, initialPayslips }: PayrollWor
   };
 
   const handleFinalizePayroll = async () => {
-    if (!activePeriod) return;
+    if (!activePeriod || processing) return;
     setLockError("");
+    setProcessing(true);
 
     const lockCheck = await validatePayrollLockAction(activePeriod.id);
     if ("error" in lockCheck) {
       setLockError(lockCheck.error);
+      setProcessing(false);
       return;
     }
 
     const res = await finalizePayrollPeriodAction(activePeriod.id);
+    setProcessing(false);
     if ("error" in res) {
       setLockError(`Finalize failed: ${res.error}`);
     } else {
@@ -124,14 +135,38 @@ export function PayrollWorkspace({ initialPeriods, initialPayslips }: PayrollWor
   };
 
   const handleReopenPayroll = async () => {
-    if (!activePeriod) return;
+    if (!activePeriod || processing) return;
+    setProcessing(true);
+    setLockError("");
     const res = await reopenPayrollPeriodAction(activePeriod.id);
+    setProcessing(false);
     if ("error" in res) {
       setLockError(`Reopen failed: ${res.error}`);
     } else {
       toast(
         <span>
           Payroll period {activePeriod.month_name} reopened for revision! New Revision v{activePeriod.active_revision + 1} created.{" "}
+          <a href="#payslip-register" className="underline font-bold">
+            Review payslips ↓
+          </a>
+        </span>
+      );
+      refresh();
+    }
+  };
+
+  const handlePublishPayroll = async () => {
+    if (!activePeriod || processing) return;
+    setLockError("");
+    setProcessing(true);
+    const res = await publishPayrollPeriodAction(activePeriod.id);
+    setProcessing(false);
+    if ("error" in res) {
+      setLockError(`Publish failed: ${res.error}`);
+    } else {
+      toast(
+        <span>
+          Payroll period {activePeriod.month_name} published successfully! Payslips are now available for employee self-service.{" "}
           <a href="#payslip-register" className="underline font-bold">
             Review payslips ↓
           </a>
@@ -153,10 +188,12 @@ export function PayrollWorkspace({ initialPeriods, initialPayslips }: PayrollWor
           activePeriod?.status === "finalized" || activePeriod?.status === "published" ? (
             <button
               data-testid="reopen-payroll-btn"
-              onClick={handleReopenPayroll}
-              className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-semibold rounded-lg border border-amber-300 transition flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300"
+              onClick={() => setConfirmReopen(true)}
+              disabled={processing}
+              className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-semibold rounded-lg border border-amber-300 transition flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 disabled:opacity-50"
             >
-              <RefreshCw className="w-4 h-4 text-amber-700" /> Reopen for Revision (v{(activePeriod?.active_revision ?? 0) + 1})
+              {processing ? <Loader2 className="w-4 h-4 animate-spin text-amber-700" /> : <RefreshCw className="w-4 h-4 text-amber-700" />}
+              Reopen for Revision (v{(activePeriod?.active_revision ?? 0) + 1})
             </button>
           ) : (
             <button
@@ -203,13 +240,27 @@ export function PayrollWorkspace({ initialPeriods, initialPayslips }: PayrollWor
             <div className="flex items-center gap-3 text-xs self-start sm:self-auto">
               <StatusBadge status={activePeriod?.status || "draft"} label={`Status: ${activePeriod?.status || "draft"}`} />
 
-              {activePeriod?.status !== "finalized" && (
+              {activePeriod?.status !== "finalized" && activePeriod?.status !== "published" && (
                 <button
                   data-testid="finalize-payroll-btn"
                   onClick={handleFinalizePayroll}
-                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg transition flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300"
+                  disabled={processing}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold rounded-lg transition flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300"
                 >
-                  <Lock className="w-3.5 h-3.5" /> Finalize & Lock Payroll
+                  {processing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
+                  Finalize & Lock Payroll
+                </button>
+              )}
+
+              {activePeriod?.status === "finalized" && (
+                <button
+                  data-testid="publish-payroll-btn"
+                  onClick={handlePublishPayroll}
+                  disabled={processing}
+                  className="px-3.5 py-1.5 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white font-semibold rounded-lg transition flex items-center gap-1.5 shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300"
+                >
+                  {processing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                  Publish Payslips
                 </button>
               )}
             </div>
@@ -368,6 +419,21 @@ export function PayrollWorkspace({ initialPeriods, initialPayslips }: PayrollWor
               </div>
             </Modal>
           )}
+
+          {/* Reopen Payroll Revision Confirmation */}
+          <ConfirmDialog
+            isOpen={confirmReopen}
+            title="Reopen Payroll Period for Revision"
+            description={`Are you sure you want to reopen ${activePeriod?.month_name}? This will create Revision v${(activePeriod?.active_revision ?? 0) + 1} and allow modifying calculations. This action is logged to the system audit trail.`}
+            confirmLabel="Reopen for Revision"
+            cancelLabel="Keep Locked"
+            danger
+            onConfirm={() => {
+              setConfirmReopen(false);
+              handleReopenPayroll();
+            }}
+            onCancel={() => setConfirmReopen(false)}
+          />
         </>
       )}
     </>

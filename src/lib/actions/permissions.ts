@@ -1,10 +1,11 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { computePermissionDurationMinutes } from "@/lib/services/leave-engine";
+import { computePermissionDurationMinutes, computeCompOffExpiryDate } from "@/lib/services/leave-engine";
 import { assertPermission, assertAnyPermission, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { createNotificationAction } from "@/lib/actions/notifications";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
+import { writeAuditLogAction } from "@/lib/actions/audit";
 
 export async function applyShortPermissionAction(
   permissionDate: string,
@@ -39,6 +40,27 @@ export async function applyShortPermissionAction(
     return { error: "Short permission requests are limited to maximum 2 hours (120 minutes)." };
   }
 
+  // Calculate total permission minutes already requested/approved in the same month
+  const currentMonthStart = permissionDate.slice(0, 7) + "-01";
+  const { data: monthRequests } = await supabase
+    .from("permission_requests")
+    .select("duration_minutes, status")
+    .eq("employee_id", emp.id)
+    .gte("permission_date", currentMonthStart)
+    .neq("status", "rejected");
+
+  const existingMonthMins = (monthRequests || []).reduce(
+    (sum: number, r: any) => sum + (r.duration_minutes || 0),
+    0
+  );
+
+  if (existingMonthMins + durationMinutes > 120) {
+    const remainingMins = Math.max(0, 120 - existingMonthMins);
+    return {
+      error: `Monthly quota exceeded: You have ${remainingMins} minute(s) remaining of your 120-minute monthly permission quota.`,
+    };
+  }
+
   const { data, error } = await supabase
     .from("permission_requests")
     .insert({
@@ -71,7 +93,7 @@ export async function applyShortPermissionAction(
 export async function getShortPermissionsAction() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { requests: [] };
+  if (!user) return { requests: [], monthlyUsedMinutes: 0 };
 
   const { data: emp } = await supabase
     .from("employees")
@@ -79,16 +101,31 @@ export async function getShortPermissionsAction() {
     .eq("auth_user_id", user.id)
     .single();
 
-  if (!emp) return { requests: [] };
+  if (!emp) return { requests: [], monthlyUsedMinutes: 0 };
 
-  const { data, error } = await supabase
-    .from("permission_requests")
-    .select("*")
-    .eq("employee_id", emp.id)
-    .order("created_at", { ascending: false });
+  const currentMonthStart = new Date().toISOString().slice(0, 7) + "-01";
 
-  if (error) return { requests: [] };
-  return { requests: data || [] };
+  const [{ data, error }, { data: monthRequests }] = await Promise.all([
+    supabase
+      .from("permission_requests")
+      .select("*")
+      .eq("employee_id", emp.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("permission_requests")
+      .select("duration_minutes, status")
+      .eq("employee_id", emp.id)
+      .gte("permission_date", currentMonthStart)
+      .neq("status", "rejected"),
+  ]);
+
+  const monthlyUsedMinutes = (monthRequests || []).reduce(
+    (sum: number, r: any) => sum + (r.duration_minutes || 0),
+    0
+  );
+
+  if (error) return { requests: [], monthlyUsedMinutes: 0 };
+  return { requests: data || [], monthlyUsedMinutes };
 }
 
 export async function decideShortPermissionAction(
@@ -153,4 +190,149 @@ export async function decideShortPermissionAction(
   }
 
   return { success: true, record: data };
+}
+
+export async function manualCreditCompOffAction(
+  employeeId: string,
+  days: number,
+  reason: string,
+  expiryDays: number = 90
+): Promise<{ success: boolean; error?: string; grant?: any }> {
+  const csrfError = await validateRequestOrigin();
+  if (csrfError) return { success: false, error: csrfError.error };
+
+  const permError = await assertPermission("compoff.credit.manual");
+  if (permError) return { success: false, error: permError.error };
+
+  reason = sanitizeInput(reason);
+  if (!employeeId || days <= 0 || !reason) {
+    return { success: false, error: "Invalid parameters: employeeId, positive days, and reason are required." };
+  }
+
+  const supabase = await createClient();
+  const caller = await getAuthenticatedCaller();
+  let approverId = caller?.employeeId || null;
+
+  if (!approverId) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: emp } = await supabase
+        .from("employees")
+        .select("id")
+        .eq("auth_user_id", user.id)
+        .single();
+      approverId = emp?.id || null;
+    }
+  }
+
+  const today = new Date().toISOString().split("T")[0];
+  const expiryDate = computeCompOffExpiryDate(today, expiryDays);
+
+  const { data: grant, error } = await supabase
+    .from("comp_off_grants")
+    .insert({
+      employee_id: employeeId,
+      worked_date: today,
+      days_granted: days,
+      expiry_date: expiryDate,
+      status: "approved",
+      approver_id: approverId,
+    })
+    .select()
+    .single();
+
+  if (error) return { success: false, error: error.message };
+
+  try {
+    await writeAuditLogAction({
+      action: "compoff.credit.manual",
+      entityType: "comp_off_grants",
+      entityId: grant.id,
+      newValues: {
+        employee_id: employeeId,
+        days_granted: days,
+        expiry_date: expiryDate,
+        reason,
+      },
+    });
+  } catch {
+    // Non-blocking in mock/test environments
+  }
+
+  await createNotificationAction(
+    employeeId,
+    "Comp-Off Credited",
+    `You have been credited ${days} day(s) of comp-off. Reason: ${reason}`,
+    "/leave"
+  );
+
+  return { success: true, grant };
+}
+
+export async function revokeCompOffAction(
+  grantId: string,
+  reason: string
+): Promise<{ success: boolean; error?: string; grant?: any }> {
+  const csrfError = await validateRequestOrigin();
+  if (csrfError) return { success: false, error: csrfError.error };
+
+  const permError = await assertPermission("compoff.revoke");
+  if (permError) return { success: false, error: permError.error };
+
+  reason = sanitizeInput(reason);
+  if (!grantId || !reason) {
+    return { success: false, error: "Invalid parameters: grantId and reason are required." };
+  }
+
+  const supabase = await createClient();
+
+  const { data: grant, error: fetchError } = await supabase
+    .from("comp_off_grants")
+    .select("*")
+    .eq("id", grantId)
+    .single();
+
+  if (fetchError || !grant) {
+    return { success: false, error: "Comp-off grant record not found." };
+  }
+
+  if (grant.is_used) {
+    return { success: false, error: "Cannot revoke comp-off grant: Grant has already been utilized." };
+  }
+
+  if (grant.status === "rejected" || grant.status === "cancelled") {
+    return { success: false, error: `Grant is already ${grant.status}.` };
+  }
+
+  const { data: updated, error: updateError } = await supabase
+    .from("comp_off_grants")
+    .update({
+      status: "rejected",
+    })
+    .eq("id", grantId)
+    .select()
+    .single();
+
+  if (updateError) return { success: false, error: updateError.message };
+
+  try {
+    await writeAuditLogAction({
+      action: "compoff.revoke",
+      entityType: "comp_off_grants",
+      entityId: grantId,
+      oldValues: { status: grant.status },
+      newValues: { status: "rejected", reason },
+    });
+  } catch {
+    // Non-blocking in mock/test environments
+  }
+
+  await createNotificationAction(
+    grant.employee_id,
+    "Comp-Off Revoked",
+    `A comp-off grant of ${grant.days_granted} day(s) has been revoked. Reason: ${reason}`,
+    "/leave"
+  );
+
+  return { success: true, grant: updated };
 }

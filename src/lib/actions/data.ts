@@ -14,26 +14,47 @@ export async function globalSearchAction(query: string) {
   const cleanQuery = query.replace(/[^\w\s@.-]/gi, "").trim();
   if (cleanQuery.length < 2) return { results: [] };
 
+  const caller = await getAuthenticatedCaller();
+  const callerRoles = caller?.roles || ["employee"];
+  const isSysAdmin = callerRoles.includes("system_admin");
+  const isHrAdmin = callerRoles.includes("hr");
+  const isManager = callerRoles.includes("manager");
+  const callerEmployeeId = caller?.employeeId;
+
   const supabase = await createClient();
 
-  const { data, error } = await supabase.rpc("search_global", {
-    p_query: cleanQuery,
-  });
+  // If caller has global view privileges (system_admin or hr), query global RPC
+  if (isSysAdmin || isHrAdmin) {
+    const { data, error } = await supabase.rpc("search_global", {
+      p_query: cleanQuery,
+    });
 
-  if (error) {
-    // Fallback: search employees table directly with RLS-enforced scope
-    const { data: emp } = await supabase
-      .from("employees")
-      .select("id, full_name, employee_code, email, department, designation, status")
-      .or(`full_name.ilike.%${cleanQuery}%,employee_code.ilike.%${cleanQuery}%,email.ilike.%${cleanQuery}%`)
-      .limit(10);
-
-    return {
-      results: (emp || []).map((e: any) => mapEmployeeToSearchResult(e)),
-    };
+    if (!error && data) {
+      return { results: data };
+    }
   }
 
-  return { results: data || [] };
+  // Fallback / Scoped Query: search employees table directly with role-enforced scope
+  let queryBuilder = supabase
+    .from("employees")
+    .select("id, full_name, employee_code, email, department, designation, status")
+    .or(`full_name.ilike.%${cleanQuery}%,employee_code.ilike.%${cleanQuery}%,email.ilike.%${cleanQuery}%`);
+
+  if (!isSysAdmin && !isHrAdmin) {
+    if (isManager && callerEmployeeId) {
+      // Manager can view self and direct reports
+      queryBuilder = queryBuilder.or(`id.eq.${callerEmployeeId},manager_id.eq.${callerEmployeeId}`);
+    } else if (callerEmployeeId) {
+      // Standard employee can only search/view self
+      queryBuilder = queryBuilder.eq("id", callerEmployeeId);
+    }
+  }
+
+  const { data: emp } = await queryBuilder.limit(10);
+
+  return {
+    results: (emp || []).map((e: any) => mapEmployeeToSearchResult(e)),
+  };
 }
 
 export async function getCalendarDataAction() {
@@ -76,9 +97,9 @@ export async function getCalendarDataAction() {
   };
 }
 
-export async function getSalaryDataAction() {
+export async function getSalaryDataAction(targetEmployeeId?: string) {
   const permError = await assertAnyPermission(["salary.view.self", "salary.view.all"]);
-  if (permError) return { structures: [], components: [], assignments: [], error: permError.error };
+  if (permError) return { structures: [], components: [], assignments: [], employees: [], error: permError.error };
 
   const caller = await getAuthenticatedCaller();
   let employeeId = caller?.employeeId || null;
@@ -101,9 +122,11 @@ export async function getSalaryDataAction() {
   const isViewAll = await assertPermission("salary.view.all");
   const hasViewAll = isViewAll === null;
 
-  const [{ data: components }, { data: structures }] = await Promise.all([
+  const effectiveEmployeeId = hasViewAll && targetEmployeeId ? targetEmployeeId : employeeId;
+
+  const [{ data: components }, { data: structures }, { data: employees }] = await Promise.all([
     supabase.from("salary_components").select("*").order("code"),
-    hasViewAll
+    hasViewAll && !targetEmployeeId
       ? supabase
           .from("employee_salary_structures")
           .select("*, employees(full_name, employee_code)")
@@ -112,15 +135,23 @@ export async function getSalaryDataAction() {
       : supabase
           .from("employee_salary_structures")
           .select("*, employees(full_name, employee_code)")
-          .eq("employee_id", employeeId || "")
+          .eq("employee_id", effectiveEmployeeId || "")
           .order("effective_from", { ascending: false }),
+    hasViewAll
+      ? supabase
+          .from("employees")
+          .select("id, full_name, employee_code")
+          .eq("is_deactivated", false)
+          .order("full_name")
+      : Promise.resolve({ data: [] }),
   ]);
 
   return {
     components: components || [],
     structures: structures || [],
     assignments: structures || [],
-    employeeId,
+    employees: employees || [],
+    employeeId: effectiveEmployeeId,
   };
 }
 
