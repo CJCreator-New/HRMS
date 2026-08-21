@@ -4,6 +4,14 @@
 -- Target File: schema/07_salary.sql
 -- Effective-dated per-employee versioned salary structure per FR §5.1
 -- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
+--               02_org.sql (employees table for FK references)
+-- DEPENDENTS: 09_payroll.sql (salary_components for payslip component breakdown),
+--             15_audit.sql (employee_salary_structures for audit triggers),
+--             19_reports.sql (salary data for payroll register view)
+-- Provides: salary_components, employee_salary_structures,
+--           employee_salary_structure_items tables========
 
 -- 1. Component Enums
 create type component_type as enum ('earning', 'deduction', 'reimbursement', 'statutory_deduction');

@@ -61,7 +61,7 @@ async function isSupabaseReachable() {
 
 export const MOCK_PERSONAS = {
   sys_admin: {
-    id: "persona-sysadmin-001",
+    id: "00000000-0000-0000-0000-000000000101",
     email: "sysadmin@company.com",
     name: "System Admin User",
     code: "EMP-SYSADMIN",
@@ -71,7 +71,7 @@ export const MOCK_PERSONAS = {
     doj: "2025-01-01",
   },
   hr_admin: {
-    id: "persona-hradmin-001",
+    id: "00000000-0000-0000-0000-000000000102",
     email: "hradmin@company.com",
     name: "HR Admin User",
     code: "EMP-HRADMIN",
@@ -81,7 +81,7 @@ export const MOCK_PERSONAS = {
     doj: "2025-01-01",
   },
   hr_alt_approver: {
-    id: "persona-hralt-001",
+    id: "00000000-0000-0000-0000-000000000103",
     email: "hr.alt@company.com",
     name: "Vikram Malhotra",
     code: "EMP-004",
@@ -91,7 +91,7 @@ export const MOCK_PERSONAS = {
     doj: "2025-02-01",
   },
   payroll_admin: {
-    id: "persona-payroll-001",
+    id: "00000000-0000-0000-0000-000000000104",
     email: "payroll@company.com",
     name: "Payroll Admin User",
     code: "EMP-PAYROLL",
@@ -101,7 +101,7 @@ export const MOCK_PERSONAS = {
     doj: "2025-01-01",
   },
   manager_m1: {
-    id: "persona-mgr-001",
+    id: "00000000-0000-0000-0000-000000000105",
     email: "manager.m1@company.com",
     name: "Rajesh Kumar",
     code: "EMP-MGR01",
@@ -111,7 +111,7 @@ export const MOCK_PERSONAS = {
     doj: "2025-03-01",
   },
   manager_m2: {
-    id: "persona-mgr-002",
+    id: "00000000-0000-0000-0000-000000000106",
     email: "manager.m2@company.com",
     name: "Priya Deshmukh",
     code: "EMP-MGR02",
@@ -121,7 +121,7 @@ export const MOCK_PERSONAS = {
     doj: "2025-04-01",
   },
   employee_e1: {
-    id: "persona-emp-001",
+    id: "00000000-0000-0000-0000-000000000107",
     email: "employee.e1@company.com",
     name: "Priya Sharma",
     code: "EMP-002",
@@ -131,7 +131,7 @@ export const MOCK_PERSONAS = {
     doj: "2026-01-01",
   },
   employee_e2: {
-    id: "persona-emp-002",
+    id: "00000000-0000-0000-0000-000000000108",
     email: "employee.e2@company.com",
     name: "Amit Patel",
     code: "EMP-003",
@@ -141,7 +141,7 @@ export const MOCK_PERSONAS = {
     doj: "2026-01-15",
   },
   employee_e3: {
-    id: "persona-emp-003",
+    id: "00000000-0000-0000-0000-000000000109",
     email: "employee.e3@company.com",
     name: "Sneha Reddy",
     code: "EMP-005",
@@ -151,7 +151,7 @@ export const MOCK_PERSONAS = {
     doj: "2026-02-01",
   },
   multi_hr_mgr: {
-    id: "persona-multirole-001",
+    id: "00000000-0000-0000-0000-000000000110",
     email: "multi.hrmgr@company.com",
     name: "Sunita Verma",
     code: "EMP-MULTI",
@@ -161,7 +161,7 @@ export const MOCK_PERSONAS = {
     doj: "2025-05-01",
   },
   emp_invited: {
-    id: "persona-invited-001",
+    id: "00000000-0000-0000-0000-000000000111",
     email: "invited.emp@company.com",
     name: "Rohan Gupta",
     code: "EMP-INV01",
@@ -171,7 +171,7 @@ export const MOCK_PERSONAS = {
     doj: "2026-08-01",
   },
   emp_suspended: {
-    id: "persona-suspended-001",
+    id: "00000000-0000-0000-0000-000000000112",
     email: "suspended.emp@company.com",
     name: "Rahul Verma",
     code: "EMP-SUS01",
@@ -181,7 +181,7 @@ export const MOCK_PERSONAS = {
     doj: "2025-06-01",
   },
   emp_notice: {
-    id: "persona-notice-001",
+    id: "00000000-0000-0000-0000-000000000113",
     email: "notice.emp@company.com",
     name: "Ananya Roy",
     code: "EMP-NOT01",
@@ -191,7 +191,7 @@ export const MOCK_PERSONAS = {
     doj: "2025-07-01",
   },
   emp_offboarded: {
-    id: "persona-offboarded-001",
+    id: "00000000-0000-0000-0000-000000000114",
     email: "offboarded.emp@company.com",
     name: "Karan Mehra",
     code: "EMP-OFF01",
@@ -199,6 +199,36 @@ export const MOCK_PERSONAS = {
     status: "offboarded",
     must_change_password: false,
     doj: "2024-01-01",
+  },
+  statutory_admin: {
+    id: "00000000-0000-0000-0000-000000000115",
+    email: "statutory.admin@company.com",
+    name: "Deepa Nair",
+    code: "EMP-STATADM",
+    roles: ["statutory_admin"],
+    status: "active",
+    must_change_password: false,
+    doj: "2025-06-01",
+  },
+  finance_admin: {
+    id: "00000000-0000-0000-0000-000000000116",
+    email: "finance.admin@company.com",
+    name: "Arjun Mehta",
+    code: "EMP-FINADM",
+    roles: ["finance_admin"],
+    status: "active",
+    must_change_password: false,
+    doj: "2025-06-01",
+  },
+  it_admin: {
+    id: "00000000-0000-0000-0000-000000000117",
+    email: "it.admin@company.com",
+    name: "Nikhil Joshi",
+    code: "EMP-ITADM",
+    roles: ["it_admin"],
+    status: "active",
+    must_change_password: false,
+    doj: "2025-06-01",
   },
 };
 
@@ -279,6 +309,9 @@ export async function seedAllMockData() {
     { code: "hr", name: "HR Admin", is_system: true },
     { code: "payroll_admin", name: "Payroll Administrator", is_system: true },
     { code: "system_admin", name: "System Administrator", is_system: true },
+    { code: "statutory_admin", name: "Statutory Administrator", is_system: true },
+    { code: "finance_admin", name: "Finance Administrator", is_system: true },
+    { code: "it_admin", name: "IT Administrator", is_system: true },
   ];
   for (const r of roles) {
     await adminDb.from("roles").upsert(r, { onConflict: "code" });
@@ -397,6 +430,9 @@ export async function seedAllMockData() {
     { employee_id: MOCK_PERSONAS.hr_alt_approver.id, department_id: hrDept?.id },
     { employee_id: MOCK_PERSONAS.multi_hr_mgr.id, department_id: hrDept?.id },
     { employee_id: MOCK_PERSONAS.payroll_admin.id, department_id: finDept?.id },
+    { employee_id: MOCK_PERSONAS.statutory_admin.id, department_id: finDept?.id },
+    { employee_id: MOCK_PERSONAS.finance_admin.id, department_id: finDept?.id },
+    { employee_id: MOCK_PERSONAS.it_admin.id, department_id: engDept?.id },
   ];
 
   for (const da of deptAssignments) {
@@ -427,6 +463,9 @@ export async function seedAllMockData() {
     { employee_id: MOCK_PERSONAS.hr_admin.id, manager_id: MOCK_PERSONAS.sys_admin.id },
     { employee_id: MOCK_PERSONAS.payroll_admin.id, manager_id: MOCK_PERSONAS.sys_admin.id },
     { employee_id: MOCK_PERSONAS.multi_hr_mgr.id, manager_id: MOCK_PERSONAS.sys_admin.id },
+    { employee_id: MOCK_PERSONAS.statutory_admin.id, manager_id: MOCK_PERSONAS.sys_admin.id },
+    { employee_id: MOCK_PERSONAS.finance_admin.id, manager_id: MOCK_PERSONAS.sys_admin.id },
+    { employee_id: MOCK_PERSONAS.it_admin.id, manager_id: MOCK_PERSONAS.sys_admin.id },
   ];
 
   for (const ma of managerAssignments) {

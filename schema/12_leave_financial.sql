@@ -4,6 +4,13 @@
 -- Target File: schema/12_leave_financial.sql
 -- Strictly aligned with FR §4.10, §4.11 & ADR 0003
 -- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
+--               02_org.sql (employees table for FK references),
+--               06_leave.sql (leave_types for FK, leave_allocations, leave_ledger),
+--               09_payroll.sql (payroll_periods for FK reference in encashment)
+-- DEPENDENTS: 19_reports.sql (v_pending_approvals_dashboard includes encashment requests)
+-- Provides: leave_encashment_requests, leave_carry_forward_logs tables========
 
 -- 1. Enums
 create type encashment_status as enum ('pending', 'approved', 'rejected', 'processed');

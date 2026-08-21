@@ -17,7 +17,10 @@
     "test:e2e:rbac": "playwright test e2e/specs/rbac --project=chromium",
     "test:e2e:nfr": "playwright test e2e/specs/nfr --project=chromium",
     "test:golden-path": "playwright test e2e/specs/cross-module/golden-path-routing-trace.spec.ts",
-    "test:audit": "playwright test e2e/specs/cross-module e2e/specs/rbac --project=chromium"
+    "test:golden-path:live": "NEXT_PUBLIC_MOCK_AUTH=false playwright test e2e/specs/cross-module/golden-path-routing-trace.spec.ts --project=live-chromium",
+    "test:cross-module:live": "NEXT_PUBLIC_MOCK_AUTH=false playwright test e2e/specs/cross-module --project=live-chromium",
+    "test:audit": "playwright test e2e/specs/cross-module e2e/specs/rbac --project=chromium",
+    "setup:test-db": "node scripts/setup-supabase-test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

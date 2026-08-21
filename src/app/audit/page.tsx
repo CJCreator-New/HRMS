@@ -6,6 +6,7 @@ import { getAuditLogsAction } from "@/lib/actions/audit";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { PageLoading } from "@/components/shared/PageLoading";
 import { DataTable } from "@/components/shared/DataTable";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { formatDateIndian } from "@/lib/utils/formatters";
 
 interface AuditLogEntry {
@@ -85,11 +86,10 @@ export default function AuditLogsPage() {
       </div>
 
       {/* Audit Log Table — shared DataTable (client-mode pagination/sort) */}
-      <div className="bg-surface rounded-xl border border-line shadow-card p-6 space-y-4">
-        {loading ? (
-          <PageLoading message="Loading audit logs…" />
-        ) : (
-        <DataTable
+      {loading ? (
+        <PageLoading message="Loading audit logs..." />
+      ) : (
+      <DataTable
           name="audit"
           columns={[
             { key: "created_at", header: "Timestamp" },
@@ -117,8 +117,7 @@ export default function AuditLogsPage() {
             </tr>
           )}
         />
-        )}
-      </div>
+      )}
     </div>
   );
 }

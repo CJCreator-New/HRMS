@@ -44,6 +44,18 @@ const ROLE_PERMISSIONS_MAP: Record<string, string[]> = {
   system_admin: [
     "settings.manage", "audit.view", "job.view", "job.rerun", "employee.view.all"
   ],
+  statutory_admin: [
+    "attachment.view", "employee.view.all", "payroll.view", "reports.export", "salary.view.all",
+    "statutory.edit", "statutory.view",
+  ],
+  finance_admin: [
+    "attachment.view", "employee.view.all", "ff.approve", "ff.view", "payroll.view",
+    "reimbursement.approve", "reimbursement.view.all", "reports.export",
+  ],
+  it_admin: [
+    "attachment.upload", "attachment.view", "audit.view", "employee.view.all", "job.rerun",
+    "job.view", "settings.manage",
+  ],
 };
 
 // Deliberate E2E persona grants beyond the strict exact-match model:
@@ -58,6 +70,9 @@ const DELIBERATE_EXTRA_GRANTS: Array<[string, string]> = [
   ["hr.alt@company.com", "/"],
   ["payroll@company.com", "/"],
   ["payroll@company.com", "/calendar"],
+  ["statutory.admin@company.com", "/"],
+  ["finance.admin@company.com", "/"],
+  ["it.admin@company.com", "/"],
 ];
 
 describe("isMockEmailAllowed", () => {

@@ -3,6 +3,16 @@
 -- Database Target: PostgreSQL / Supabase
 -- Target File: schema/20_performance_optimizations.sql
 -- ============================================================================
+--
+-- DEPENDENCIES: 02_org.sql (employees table for headcount aggregation),
+--               05_attendance.sql (attendance_records for date indexes),
+--               09_payroll.sql (payslips, payroll_revisions for FK indexes),
+--               11_reimbursements.sql (reimbursement_claims for FK index)
+-- DEPENDENTS: None (leaf module — indexes and functions only)
+-- Provides: get_dashboard_headcount() RPC,
+--           performance indexes on employees, attendance_records,
+--           payslips, reimbursement_claims, employee_roles,
+--           payroll_revisions========
 
 -- 1. Optimized Headcount Aggregation RPC Function
 -- Collapses two separate exact count queries (active and activated_this_month)

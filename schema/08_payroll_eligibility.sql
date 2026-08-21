@@ -5,6 +5,14 @@
 -- Strictly aligned with FR §2.1, §3.6, §5.3 & ADR 0003
 -- Effective-dated binary eligibility status (system_default vs hr_override)
 -- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
+--               02_org.sql (employees table for FK references),
+--               05_attendance.sql (attendance_records for worked units calc),
+--               06_leave.sql (leave_requests, leave_types for paid/LOP leave units)
+-- DEPENDENTS: 09_payroll.sql (payroll_eligibility_snapshots for payroll run)
+-- Provides: payroll_eligibility, payroll_eligibility_snapshots tables,
+--           compute_payroll_eligibility() function========
 
 -- 1. Enums
 create type eligibility_source as enum ('system_default', 'hr_override');

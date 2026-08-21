@@ -8,6 +8,7 @@ import { Modal } from "@/components/shared/Modal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { DataTable } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { PageLoading } from "@/components/shared/PageLoading";
 import { useToast } from "@/components/shared/Toast";
 import { formatCurrencyIndian } from "@/lib/utils/formatters";
 import { BatchUploadDrawer } from "@/components/shared/batch-import/BatchUploadDrawer";
@@ -158,7 +159,7 @@ export default function StatutoryManagementPage() {
         </h3>
 
         {loading ? (
-          <div className="p-8 text-center text-ink-muted text-xs">Loading statutory profiles...</div>
+          <PageLoading message="Loading statutory profiles..." />
         ) : (
           <DataTable
             name="statutory"

@@ -5,6 +5,25 @@
 -- Strictly aligned with FR §5.2, §5.3, §5.5–§5.9 & ADR 0003
 -- Supports FR Revision/Supersede flow & §5.7 Blocking Checks
 -- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
+--               02_org.sql (employees table for FK references),
+--               05_attendance.sql (attendance_records for §5.7 lock validation),
+--               06_leave.sql (leave_requests for §5.7 pending leave check),
+--               07_salary.sql (salary_components for payslip component breakdown),
+--               08_payroll_eligibility.sql (payroll_eligibility_snapshots),
+--               10_statutory.sql (statutory_profiles for §5.7 missing profile check)
+--               Note: 10_statutory.sql also depends on payslips — applied after this file.
+-- DEPENDENTS: 10_statutory.sql (statutory_calculation_snapshots FK → payslips),
+--             11_reimbursements.sql (payroll_periods FK in claims),
+--             12_leave_financial.sql (payroll_periods FK in encashment),
+--             15_audit.sql (payroll_revisions for audit triggers),
+--             18_search.sql (payroll_periods for global search),
+--             19_reports.sql (v_payroll_register_summary view)
+-- Provides: payroll_periods, payroll_revisions, payslips,
+--           payslip_components, payroll_payment_items,
+--           payroll_adjustments tables, validate_payroll_lock(),
+--           reopen_payroll_period() functions========
 
 -- 1. Enums
 create type payroll_period_status as enum ('draft', 'processing', 'validated', 'finalized', 'published');

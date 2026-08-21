@@ -4,6 +4,14 @@
 -- Target File: schema/04_work_calendar.sql
 -- Strictly aligned with FR §3.5, §7, §9 & ADR 0003
 -- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
+--               02_org.sql (employees table, separation_records for LWD lookup)
+-- DEPENDENTS: 05_attendance.sql (is_working_day used in attendance triggers),
+--             06_leave.sql (is_working_day used in leave sandwich calc)
+-- Provides: work_calendar_templates, holidays, employee_work_calendar_assignment,
+--           employee_optional_holiday_selections tables,
+--           is_working_day() function========
 
 -- 1. Calendar Templates (e.g. 5-Day Week, 6-Day Week, Alternate Saturday)
 create table work_calendar_templates (

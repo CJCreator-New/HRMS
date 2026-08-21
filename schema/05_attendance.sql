@@ -4,6 +4,17 @@
 -- Target File: schema/05_attendance.sql
 -- Strictly aligned with FR §3.1–§3.5 & ADR 0003
 -- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
+--               02_org.sql (employees table, is_current_manager_of for RLS),
+--               04_work_calendar.sql (is_working_day — referenced by 06_leave.sql)
+-- DEPENDENTS: 06_leave.sql (attendance_records referenced in comp_off_grants),
+--             08_payroll_eligibility.sql (attendance_records for worked units),
+--             09_payroll.sql (attendance_records for payroll lock validation),
+--             13_ff_settlement.sql (attendance_records for stale FF invalidation),
+--             19_reports.sql (v_monthly_attendance_summary view)
+-- Provides: attendance_records, attendance_punches, attendance_corrections tables,
+--           process_attendance_record_update() trigger========
 
 -- 1. Enums
 create type attendance_event_status as enum ('present', 'absent', 'half_day', 'extra_work', 'pending_review');
@@ -55,18 +66,9 @@ create table attendance_corrections (
   updated_at            timestamptz not null default now()
 );
 
--- 5. Derived Read-Only View: Employee On-Leave Status (§3.5)
-create view v_employee_on_leave as
-select
-  lr.employee_id,
-  d.day_date as leave_date,
-  lt.code as leave_type_code,
-  lt.name as leave_type_name,
-  lr.id as leave_request_id
-from leave_requests lr
-join leave_types lt on lt.id = lr.leave_type_id
-cross join generate_series(lr.start_date::timestamp, lr.end_date::timestamp, '1 day'::interval) d(day_date)
-where lr.status = 'approved';
+-- 5. v_employee_on_leave view is defined at the end of 06_leave.sql
+-- (requires leave_requests and leave_types tables)
+
 
 -- 6. Auto-Calculate Punch Duration & Event Status Function
 create or replace function process_attendance_record_update() returns trigger
@@ -117,18 +119,4 @@ create policy corrections_insert on attendance_corrections for insert
 create policy corrections_update on attendance_corrections for update
   using (has_permission('attendance.correct.override') or has_permission('attendance.correct.approve') or is_current_manager_of(auth_employee_id(), employee_id));
 
--- 8. Read-only Derived On-Leave View (§3.5)
-create or replace view v_employee_on_leave as
-select
-  lr.employee_id,
-  lt.id as leave_type_id,
-  lt.code as leave_type_code,
-  lt.name as leave_type_name,
-  lr.start_date,
-  lr.end_date,
-  lr.duration_type,
-  lr.status as leave_status
-from leave_requests lr
-join leave_types lt on lt.id = lr.leave_type_id
-where lr.status = 'approved';
-
+-- 8. v_employee_on_leave is defined in 06_leave.sql after leave_requests exists

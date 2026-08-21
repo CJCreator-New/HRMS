@@ -4,6 +4,13 @@
 -- Target File: schema/03_settings.sql
 -- Strictly aligned with FR §1.4, §3.7, §5.3, §9 & ADR 0003
 -- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (has_permission for RLS),
+--               02_org.sql (employees table for FK references)
+-- DEPENDENTS: 04_work_calendar.sql (is_system_configured gate),
+--             server actions (settings management)
+-- Provides: company_settings, policy_configurations tables,
+--           is_system_configured() function========
 
 -- 1. Core Company Settings Table
 create table company_settings (

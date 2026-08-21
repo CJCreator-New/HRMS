@@ -35,7 +35,7 @@ export interface MockAttendanceSeed {
 
 export const MOCK_EMPLOYEES: MockEmployeeSeed[] = [
   {
-    id: "persona-sysadmin-001",
+    id: "00000000-0000-0000-0000-000000000101",
     employee_code: "EMP-SYSADMIN",
     full_name: "Alexander Vance",
     email: "sysadmin@company.com",
@@ -50,7 +50,7 @@ export const MOCK_EMPLOYEES: MockEmployeeSeed[] = [
     role: "system_admin",
   },
   {
-    id: "persona-hradmin-001",
+    id: "00000000-0000-0000-0000-000000000102",
     employee_code: "EMP-HRADMIN",
     full_name: "Sarah Jenkins",
     email: "hradmin@company.com",
@@ -65,7 +65,7 @@ export const MOCK_EMPLOYEES: MockEmployeeSeed[] = [
     role: "hr",
   },
   {
-    id: "persona-hralt-001",
+    id: "00000000-0000-0000-0000-000000000103",
     employee_code: "EMP-004",
     full_name: "Vikram Malhotra",
     email: "hr.alt@company.com",
@@ -80,7 +80,7 @@ export const MOCK_EMPLOYEES: MockEmployeeSeed[] = [
     role: "hr",
   },
   {
-    id: "persona-payroll-001",
+    id: "00000000-0000-0000-0000-000000000104",
     employee_code: "EMP-PAYROLL",
     full_name: "Marcus Chen",
     email: "payroll@company.com",
@@ -95,7 +95,7 @@ export const MOCK_EMPLOYEES: MockEmployeeSeed[] = [
     role: "payroll_admin",
   },
   {
-    id: "persona-mgr-001",
+    id: "00000000-0000-0000-0000-000000000105",
     employee_code: "EMP-MGR01",
     full_name: "Rajesh Kumar",
     email: "manager.m1@company.com",
@@ -110,7 +110,7 @@ export const MOCK_EMPLOYEES: MockEmployeeSeed[] = [
     role: "manager",
   },
   {
-    id: "persona-mgr-002",
+    id: "00000000-0000-0000-0000-000000000106",
     employee_code: "EMP-MGR02",
     full_name: "Priya Deshmukh",
     email: "manager.m2@company.com",
@@ -125,7 +125,7 @@ export const MOCK_EMPLOYEES: MockEmployeeSeed[] = [
     role: "manager",
   },
   {
-    id: "persona-emp-001",
+    id: "00000000-0000-0000-0000-000000000107",
     employee_code: "EMP-002",
     full_name: "Priya Sharma",
     email: "employee.e1@company.com",
@@ -140,7 +140,7 @@ export const MOCK_EMPLOYEES: MockEmployeeSeed[] = [
     role: "employee",
   },
   {
-    id: "persona-emp-002",
+    id: "00000000-0000-0000-0000-000000000108",
     employee_code: "EMP-003",
     full_name: "Amit Patel",
     email: "employee.e2@company.com",
@@ -155,7 +155,7 @@ export const MOCK_EMPLOYEES: MockEmployeeSeed[] = [
     role: "employee",
   },
   {
-    id: "persona-emp-003",
+    id: "00000000-0000-0000-0000-000000000109",
     employee_code: "EMP-005",
     full_name: "Sneha Reddy",
     email: "employee.e3@company.com",
@@ -170,7 +170,7 @@ export const MOCK_EMPLOYEES: MockEmployeeSeed[] = [
     role: "employee",
   },
   {
-    id: "persona-multirole-001",
+    id: "00000000-0000-0000-0000-000000000110",
     employee_code: "EMP-MULTI",
     full_name: "Sunita Verma",
     email: "multi.hrmgr@company.com",
@@ -211,11 +211,13 @@ export function generateMockAttendanceRecords(): MockAttendanceSeed[] {
 
   const yearMonth = "2026-08";
 
+  let idx = 1;
   for (const emp of MOCK_EMPLOYEES) {
     for (const item of baseDays) {
       const dateStr = `${yearMonth}-${item.day}`;
+      const suffix = String(idx++).padStart(12, "0");
       records.push({
-        id: `att-${emp.employee_code.toLowerCase()}-${item.day}`,
+        id: `00000000-0000-0000-0001-${suffix}`,
         employee_id: emp.id,
         attendance_date: dateStr,
         status: item.status,

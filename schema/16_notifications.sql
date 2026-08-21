@@ -4,6 +4,11 @@
 -- Target File: schema/16_notifications.sql
 -- Strictly aligned with FR §8.2
 -- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (auth_employee_id for RLS),
+--               02_org.sql (employees table for recipient_id FK)
+-- DEPENDENTS: None (leaf module — no downstream FK dependencies)
+-- Provides: inbox_notifications table, create_notification() function========
 
 -- 1. Enums
 create type notification_channel as enum ('in_app', 'email');
@@ -45,5 +50,7 @@ alter table inbox_notifications enable row level security;
 
 create policy notifications_read on inbox_notifications for select
   using (recipient_id = auth_employee_id());
+create policy notifications_insert on inbox_notifications for insert
+  with check (recipient_id = auth_employee_id() or has_permission('settings.manage'));
 create policy notifications_update on inbox_notifications for update
   using (recipient_id = auth_employee_id());

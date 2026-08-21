@@ -4,6 +4,12 @@
 -- Target File: schema/14_attachments.sql
 -- Strictly aligned with FR §6 & ADR 0003
 -- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
+--               02_org.sql (employees table for uploaded_by FK)
+-- DEPENDENTS: None (leaf module — no downstream FK dependencies)
+-- Provides: document_attachments table,
+--           validate_attachment_security() trigger========
 
 -- 1. Scan Status Enum
 create type scan_status_enum as enum ('pending', 'clean', 'flagged');

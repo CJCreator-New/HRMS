@@ -16,12 +16,26 @@ function generateNonce(): string {
 
 /** Builds a Content-Security-Policy header with nonce-based script allowlisting and CDN allowances. */
 function buildCspHeader(nonce: string): string {
+  const isDev = process.env.NODE_ENV !== "production";
+  const scriptDirectives = [
+    "'self'",
+    `'nonce-${nonce}'`,
+    "'unsafe-inline'",
+    ...(isDev ? ["'unsafe-eval'"] : []),
+    "https://cdn.jsdelivr.net",
+    "https://*.jsdelivr.net",
+    "https://apis.google.com",
+    "https://*.google.com",
+    "https://*.gstatic.com",
+    "https://*.googleapis.com",
+  ].join(" ");
+
   const directives = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' https://cdn.jsdelivr.net https://*.jsdelivr.net https://apis.google.com https://*.google.com https://*.gstatic.com https://*.googleapis.com`,
-    `script-src-elem 'self' 'nonce-${nonce}' 'unsafe-inline' https://cdn.jsdelivr.net https://*.jsdelivr.net https://apis.google.com https://*.google.com https://*.gstatic.com https://*.googleapis.com`,
-    `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://*.jsdelivr.net`,
-    `style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://*.jsdelivr.net`,
+    `script-src ${scriptDirectives}`,
+    `script-src-elem ${scriptDirectives}`,
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://*.jsdelivr.net",
+    "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://*.jsdelivr.net",
     "img-src 'self' data: blob: https://*.supabase.co https://*.googleusercontent.com https://*.unsplash.com https://cdn.jsdelivr.net https://*.jsdelivr.net https://*.gstatic.com https://*.google.com",
     "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net https://*.jsdelivr.net https://*.google.com https://*.googleapis.com https://*.googleusercontent.com",
     "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net https://*.jsdelivr.net",
@@ -125,7 +139,7 @@ export async function middleware(request: NextRequest) {
   if (user && routeGate && routeGate.requiredPermissions.length > 0) {
     const { data: employee } = await supabase
       .from("employees")
-      .select("id, employee_roles(roles(code))")
+      .select("id, employee_roles!employee_roles_employee_id_fkey(roles(code))")
       .eq("auth_user_id", user.id)
       .single();
 

@@ -5,6 +5,13 @@
 -- Strictly aligned with FR §5.10 & ADR 0003
 -- Versioned statutory rule definitions & reproducible revision snapshots
 -- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
+--               02_org.sql (employees table for FK references),
+--               09_payroll.sql (payslips table for statutory_calculation_snapshots FK)
+-- DEPENDENTS: None (leaf module — no downstream FK dependencies)
+-- Provides: statutory_rule_versions, statutory_profiles,
+--           statutory_calculation_snapshots tables========
 
 -- 1. Enums
 create type tax_regime as enum ('new_regime', 'old_regime');

@@ -4,6 +4,19 @@
 -- Target File: schema/19_reports.sql
 -- Strictly aligned with FR §10
 -- ============================================================================
+--
+-- DEPENDENCIES: 02_org.sql (employees table),
+--               05_attendance.sql (attendance_records),
+--               06_leave.sql (leave_allocations, leave_types, leave_requests,
+--                            permission_requests, comp_off_grants),
+--               07_salary.sql (payslips via payroll_revisions),
+--               09_payroll.sql (payroll_revisions, payslips),
+--               11_reimbursements.sql (reimbursement_claims, reimbursement_categories),
+--               12_leave_financial.sql (leave_encashment_requests),
+--               13_ff_settlement.sql (ff_settlement_records)
+-- DEPENDENTS: None (leaf module — views only, no downstream FK dependencies)
+-- Provides: v_monthly_attendance_summary, v_leave_utilization_summary,
+--           v_payroll_register_summary, v_pending_approvals_dashboard views========
 
 -- 1. Monthly Attendance Summary View
 create view v_monthly_attendance_summary as

@@ -4,6 +4,24 @@
 -- Target File: schema/06_leave.sql
 -- Strictly aligned with FR §4.1–§4.9 & ADR 0003
 -- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
+--               02_org.sql (employees table for FK references),
+--               04_work_calendar.sql (is_working_day for sandwich calc & working day check),
+--               05_attendance.sql (attendance_records for comp_off linkage)
+-- DEPENDENTS: 08_payroll_eligibility.sql (leave_requests/leave_types for paid leave units),
+--             09_payroll.sql (leave_requests for pending leave validation),
+--             12_leave_financial.sql (leave_types, leave_allocations, leave_ledger),
+--             13_ff_settlement.sql (leave_ledger for stale FF invalidation),
+--             17_scheduled_jobs.sql (leave_types, leave_allocations, comp_off_grants),
+--             19_reports.sql (v_leave_utilization_summary view)
+-- Provides: leave_types, leave_allocations, leave_requests,
+--           leave_request_approvals, leave_ledger, permission_requests,
+--           comp_off_grants tables, calculate_leave_days(),
+--           prevent_overlapping_leave_requests() trigger,
+--           process_leave_request_state_change() trigger,
+--           recover_negative_leave_balances(), v_leave_requests_masked view,
+--           v_employee_on_leave view========
 
 create type leave_request_status as enum ('pending', 'approved', 'rejected', 'cancelled', 'withdrawn');
 create type leave_duration_type as enum ('full_day', 'first_half', 'second_half'); -- FR §3.6a
@@ -326,3 +344,18 @@ insert into leave_types (code, name, is_sandwich_enabled, requires_attachment, a
   ('COMP_OFF', 'Compensatory Off', false, false, true),
   ('LOP', 'Loss of Pay / Unpaid Leave', false, false, true)
 on conflict (code) do nothing;
+
+-- Cross-module view: Employee On-Leave Status (referenced by 05_attendance but depends on leave_requests)
+create or replace view v_employee_on_leave as
+select
+  lr.employee_id,
+  lt.id as leave_type_id,
+  lt.code as leave_type_code,
+  lt.name as leave_type_name,
+  lr.start_date,
+  lr.end_date,
+  lr.duration_type,
+  lr.status as leave_status
+from leave_requests lr
+join leave_types lt on lt.id = lr.leave_type_id
+where lr.status = 'approved';

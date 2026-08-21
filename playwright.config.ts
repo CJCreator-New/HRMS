@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const isLiveBackend = process.env.NEXT_PUBLIC_MOCK_AUTH === "false";
+
 export default defineConfig({
   testDir: "./e2e/specs",
   timeout: 45 * 1000,
@@ -22,39 +24,56 @@ export default defineConfig({
     video: "retain-on-failure",
   },
   projects: [
-    {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
-    },
-    {
-      name: "firefox",
-      use: { ...devices["Desktop Firefox"] },
-    },
-    {
-      name: "webkit",
-      use: { ...devices["Desktop Safari"] },
-    },
-    {
-      name: "edge",
-      use: { ...devices["Desktop Edge"] },
-    },
-    {
-      name: "mobile-chrome",
-      use: { ...devices["Pixel 5"] },
-    },
-    {
-      name: "mobile-safari",
-      use: { ...devices["iPhone 12"] },
-    },
-    {
-      name: "tablet",
-      use: { ...devices["iPad Mini"] },
-    },
+    // ─── Offline Mock-Auth Projects (Default) ─────────────────────────
+    ...(isLiveBackend
+      ? []
+      : [
+          {
+            name: "chromium",
+            use: { ...devices["Desktop Chrome"] },
+          },
+          {
+            name: "firefox",
+            use: { ...devices["Desktop Firefox"] },
+          },
+          {
+            name: "webkit",
+            use: { ...devices["Desktop Safari"] },
+          },
+          {
+            name: "edge",
+            use: { ...devices["Desktop Edge"] },
+          },
+          {
+            name: "mobile-chrome",
+            use: { ...devices["Pixel 5"] },
+          },
+          {
+            name: "mobile-safari",
+            use: { ...devices["iPhone 12"] },
+          },
+          {
+            name: "tablet",
+            use: { ...devices["iPad Mini"] },
+          },
+        ]),
+
+    // ─── Live-Backend Projects ────────────────────────────────────────
+    ...(isLiveBackend
+      ? [
+          {
+            name: "live-chromium",
+            use: { ...devices["Desktop Chrome"] },
+          },
+        ]
+      : []),
   ],
-  webServer: {
-    command: "npx next start",
-    url: "http://localhost:3000",
-    reuseExistingServer: true,
-    timeout: 120 * 1000,
-  },
+  webServer: isLiveBackend
+    ? undefined // No web server when running against a live backend
+    : {
+        command: "npx next start",
+        url: "http://localhost:3000",
+        reuseExistingServer: true,
+        timeout: 120 * 1000,
+      },
 });

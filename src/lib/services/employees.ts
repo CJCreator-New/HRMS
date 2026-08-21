@@ -42,7 +42,7 @@ export async function queryEmployees(
 
   let query = supabase
     .from("employees")
-    .select("*, employee_roles(roles(code, name))", paginated ? { count: "exact" } : undefined);
+    .select("*, employee_roles!employee_roles_employee_id_fkey(roles(code, name))", paginated ? { count: "exact" } : undefined);
 
   if (search && search.trim()) {
     const q = search.trim().replace(/[%]/g, "");

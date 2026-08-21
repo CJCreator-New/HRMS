@@ -63,7 +63,7 @@ async function resolveCurrentUserRoles(): Promise<CurrentUserInfo> {
       id,
       must_change_password,
       full_name,
-      employee_roles(roles(code))
+      employee_roles!employee_roles_employee_id_fkey(roles(code))
     `)
     .eq("auth_user_id", user.id)
     .maybeSingle();

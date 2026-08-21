@@ -132,6 +132,10 @@ export async function loginAction(formData: FormData): Promise<LoginActionResult
           secure: process.env.NODE_ENV === "production",
           maxAge: sessionMaxAge,
         });
+        console.warn(
+          `[Auth] Supabase auth rejected credentials (code=${errCode}) — falling back to mock auth. ` +
+          `Fix your Supabase project users or .env.local for production. email=${email}`
+        );
         return {
           success: true,
           diagnostic: {
@@ -187,6 +191,54 @@ export async function loginAction(formData: FormData): Promise<LoginActionResult
     // Successful login — reset rate limit
     await resetLoginRateLimit(email.toLowerCase());
 
+    // Auto-provision employee record on first login if missing
+    if (data?.user) {
+      const { data: existingEmp } = await supabase
+        .from("employees")
+        .select("id")
+        .eq("auth_user_id", data.user.id)
+        .single();
+
+      if (!existingEmp) {
+        const userMeta = data.user.user_metadata || {};
+        const fullName = userMeta.full_name || userMeta.name || email.split("@")[0];
+        const employeeCode = `EMP-${email.split("@")[0].toUpperCase().slice(0, 8)}`;
+
+        await supabase.from("employees").insert({
+          auth_user_id: data.user.id,
+          email: email,
+          full_name: fullName,
+          employee_code: employeeCode,
+          date_of_joining: new Date().toISOString().split("T")[0],
+          status: "active",
+          must_change_password: false,
+          is_deactivated: false,
+        });
+
+        // Assign default employee role if no roles exist
+        const { data: defaultRole } = await supabase
+          .from("roles")
+          .select("id")
+          .eq("code", "employee")
+          .single();
+
+        if (defaultRole) {
+          const { data: newEmp } = await supabase
+            .from("employees")
+            .select("id")
+            .eq("auth_user_id", data.user.id)
+            .single();
+
+          if (newEmp) {
+            await supabase.from("employee_roles").insert({
+              employee_id: newEmp.id,
+              role_id: defaultRole.id,
+            });
+          }
+        }
+      }
+    }
+
     return { success: true };
   } catch (err: unknown) {
     const errorObj = err instanceof Error ? err : null;
@@ -217,6 +269,11 @@ export async function loginAction(formData: FormData): Promise<LoginActionResult
       secure: false,
       maxAge: sessionMaxAge,
     });
+    console.warn(
+      `[Auth] Supabase unreachable — falling back to mock auth. ` +
+      `Fix your .env.local (NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY) for production. ` +
+      `Error: ${errorObj?.message || String(err)}`
+    );
     return {
       success: true,
       diagnostic: {

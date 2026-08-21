@@ -4,6 +4,15 @@
 -- Target File: schema/13_ff_settlement.sql
 -- Strictly aligned with FR §5.4 & ADR 0003
 -- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
+--               02_org.sql (employees table, separation_records for FK),
+--               05_attendance.sql (attendance_records for stale FF invalidation trigger),
+--               06_leave.sql (leave_ledger for stale FF invalidation trigger)
+-- DEPENDENTS: 19_reports.sql (v_pending_approvals_dashboard includes FF settlements)
+-- Provides: ff_settlement_records, ff_clearances tables,
+--           invalidate_stale_ff_settlement() trigger (fires on leave_ledger
+--           and attendance_records changes)========
 
 create type ff_status as enum ('draft', 'pending_approval', 'approved', 'paid', 'reopened', 'cancelled', 'withdrawn');
 

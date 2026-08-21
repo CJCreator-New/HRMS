@@ -22,7 +22,7 @@ export async function getCurrentEmployee() {
   const supabase = await createClient();
   const { data: employee } = await supabase
     .from("employees")
-    .select("*, employee_roles(roles(code, name))")
+    .select("*, employee_roles!employee_roles_employee_id_fkey(roles(code, name))")
     .eq("auth_user_id", user.id)
     .single();
 

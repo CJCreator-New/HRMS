@@ -1,6 +1,14 @@
+-- ============================================================================
 -- Migration: 21_rbac_scope_fallback.sql
 -- Description: Adds scope hierarchy fallback (.all > .team > .self) and system_admin bypass to has_any_permission RPC
 -- Security: Uses SECURITY DEFINER with fixed search_path = public to safely inspect RBAC mappings without recursive RLS checks
+-- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (has_any_permission function to replace,
+--               auth_employee_id, employee_roles, roles, role_permissions, permissions tables)
+-- DEPENDENTS: None (replaces existing function — no new downstream dependencies)
+-- Provides: Enhanced has_any_permission() with scope hierarchy fallback and
+--           system_admin bypass (replaces version from 01_rbac.sql)
 
 CREATE OR REPLACE FUNCTION has_any_permission(perm_codes text[])
 RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER

@@ -1,13 +1,15 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { DollarSign, Plus, Edit3, Shield, CheckCircle2, History, Calculator, Upload, User } from "lucide-react";
+import { DollarSign, Plus, Edit3, Shield, CheckCircle2, Calculator, Upload, User } from "lucide-react";
 import { getSalaryDataAction } from "@/lib/actions/data";
 import { createSalaryStructureAction, bulkAssignSalaryStructure } from "@/lib/actions/salary";
 import { formatCurrencyIndian, formatDateIndian } from "@/lib/utils/formatters";
 import { usePermission } from "@/lib/auth/usePermission";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { DataTable } from "@/components/shared/DataTable";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { useToast } from "@/components/shared/Toast";
 import { BatchUploadDrawer } from "@/components/shared/batch-import/BatchUploadDrawer";
 import { SalaryStructureBatchSchema } from "@/lib/batch-import/schemas";
@@ -268,64 +270,78 @@ export default function SalaryManagementPage() {
             </div>
           )}
 
-          {/* Version History Log */}
-          <div className="bg-surface rounded-xl border border-line shadow-card p-5 space-y-3">
-            <h3 className="text-sm font-bold text-ink flex items-center gap-2 border-b border-line pb-3">
-              <History className="w-4 h-4 text-primary-600" /> Versioned Salary Structure Log
-            </h3>
-
-            <div className="overflow-hidden rounded-lg border border-line">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-surface-muted border-b border-line font-bold uppercase text-ink-muted text-[11px]">
-                    <th className="px-4 py-2.5">Version</th>
-                    <th className="px-4 py-2.5">Annual CTC</th>
-                    <th className="px-4 py-2.5">Monthly Gross</th>
-                    <th className="px-4 py-2.5">Basic Monthly</th>
-                    <th className="px-4 py-2.5">Effective Range</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {salaryVersions.map((v) => (
-                    <tr key={v.version_number} className="hover:bg-surface-muted/50">
-                      <td className="px-4 py-3 font-bold text-primary-600">v{v.version_number}</td>
-                      <td className="px-4 py-3 font-mono font-semibold text-ink">{formatCurrencyIndian(v.annual_ctc)}</td>
-                      <td className="px-4 py-3 font-mono text-ink-secondary">{formatCurrencyIndian(v.monthly_gross)}</td>
-                      <td className="px-4 py-3 font-mono text-ink-secondary">{formatCurrencyIndian(v.basic_monthly)}</td>
-                      <td className="px-4 py-3 font-mono text-ink-muted text-[11px]">
-                        {formatDateIndian(v.effective_from)} &rarr; {v.effective_to ? formatDateIndian(v.effective_to) : "Present"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          {/* Version History Log — shared DataTable */}
+          <DataTable
+            name="salary-versions"
+            columns={[
+              { key: "version_number", header: "Version", sortable: true },
+              { key: "annual_ctc", header: "Annual CTC", sortable: true },
+              { key: "monthly_gross", header: "Monthly Gross" },
+              { key: "basic_monthly", header: "Basic Monthly" },
+              { key: "effective_range", header: "Effective Range" },
+            ]}
+            rows={salaryVersions}
+            getSortValue={(v: SalaryVersion, key) => {
+              if (key === "version_number") return v.version_number;
+              if (key === "annual_ctc") return v.annual_ctc;
+              return "";
+            }}
+            empty={
+              <EmptyState
+                title="No salary versions"
+                description="Create the first salary structure version to begin."
+              />
+            }
+            renderRow={(v: SalaryVersion) => (
+              <tr key={v.version_number} className="hover:bg-surface-muted/50 transition">
+                <td className="px-4 py-3 font-bold text-primary-600">v{v.version_number}</td>
+                <td className="px-4 py-3 font-mono font-semibold text-ink">{formatCurrencyIndian(v.annual_ctc)}</td>
+                <td className="px-4 py-3 font-mono text-ink-secondary">{formatCurrencyIndian(v.monthly_gross)}</td>
+                <td className="px-4 py-3 font-mono text-ink-secondary">{formatCurrencyIndian(v.basic_monthly)}</td>
+                <td className="px-4 py-3 font-mono text-ink-muted text-[11px]">
+                  {formatDateIndian(v.effective_from)} &rarr; {v.effective_to ? formatDateIndian(v.effective_to) : "Present"}
+                </td>
+              </tr>
+            )}
+          />
         </div>
 
         {/* Component Master List */}
-        <div className="bg-surface rounded-xl border border-line shadow-card p-5 space-y-4">
-          <h3 className="text-sm font-bold text-ink flex items-center gap-2 border-b border-line pb-3">
-            <Shield className="w-4 h-4 text-emerald-600" /> Salary Components Master
-          </h3>
-
-          <div className="space-y-2">
-            {components.map((c) => (
-              <div key={c.id} className="p-3 bg-surface-muted rounded-lg border border-line space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-ink">{c.name} ({c.code})</span>
+        <DataTable
+            name="salary-components"
+            columns={[
+              { key: "name", header: "Component", sortable: true },
+              { key: "calc_type", header: "Calculation" },
+              { key: "type", header: "Type" },
+              { key: "flags", header: "Flags" },
+            ]}
+            rows={components}
+            getSortValue={(c: ComponentItem, key) => (key === "name" ? c.name : "")}
+            empty={
+              <EmptyState
+                title="No salary components"
+                description="Salary components will appear here."
+              />
+            }
+            renderRow={(c: ComponentItem) => (
+              <tr key={c.id} className="hover:bg-surface-muted/50 transition">
+                <td className="px-4 py-3">
+                  <p className="font-bold text-ink">{c.name}</p>
+                  <p className="text-[11px] font-mono text-ink-muted">{c.code}</p>
+                </td>
+                <td className="px-4 py-3 text-ink-secondary font-medium">{c.calc_type}</td>
+                <td className="px-4 py-3">
                   <StatusBadge
                     status={c.type === "earning" ? "active" : "rejected"}
                     label={c.type.replace("_", " ")}
                   />
-                </div>
-                <p className="text-[11px] text-ink-muted">
-                  Calculation: <span className="font-medium text-ink-secondary">{c.calc_type}</span> &bull; Taxable: {c.is_taxable ? "Yes" : "No"}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
+                </td>
+                <td className="px-4 py-3 text-[11px] text-ink-muted">
+                  Tax: {c.is_taxable ? "Yes" : "No"} &bull; PF: {c.is_pf ? "Yes" : "No"} &bull; ESI: {c.is_esi ? "Yes" : "No"}
+                </td>
+              </tr>
+            )}
+          />
       </div>
 
       {/* Shared Batch Upload Drawer */}

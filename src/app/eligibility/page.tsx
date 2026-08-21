@@ -13,6 +13,7 @@ import { PageLoading } from "@/components/shared/PageLoading";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { DataTable } from "@/components/shared/DataTable";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { useToast } from "@/components/shared/Toast";
 import { formatDateIndian } from "@/lib/utils/formatters";
@@ -132,7 +133,7 @@ export default function EligibilityPage() {
   if (loading) return <PageLoading message="Loading eligibility…" />;
 
   return (
-    <div className="max-w-5xl mx-auto p-6">
+    <div className="max-w-5xl mx-auto space-y-6">
       {/* Header Bar (shared PageHeader) */}
       <PageHeader
         icon={<ShieldAlert className="h-6 w-6 text-indigo-600" aria-hidden="true" />}
@@ -150,14 +151,17 @@ export default function EligibilityPage() {
       </div>
 
       {canManage && (
-        <div className="bg-white rounded-lg border p-4 mb-6" data-testid="eligibility-form">
-          <h2 className="font-medium mb-3">Set eligibility</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label className="text-sm">
-              Employee
+        <div className="bg-surface p-6 rounded-xl border border-line shadow-card" data-testid="eligibility-form">
+          <h3 className="text-sm font-bold text-ink mb-4 flex items-center gap-2 border-b border-line pb-3">
+            <Plus className="w-4 h-4 text-primary-600" /> Set Eligibility Override
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label htmlFor="eligibility-employee" className="block font-semibold text-ink-secondary mb-1">Employee *</label>
               <select
+                id="eligibility-employee"
                 data-testid="eligibility-employee"
-                className="mt-1 w-full border rounded px-2 py-1.5"
+                className="w-full border border-line-strong rounded-lg px-3 py-2 bg-surface font-medium focus:ring-2 focus:ring-primary-300 focus:outline-none"
                 value={selectedEmp}
                 onChange={(e) => setSelectedEmp(e.target.value)}
               >
@@ -168,46 +172,54 @@ export default function EligibilityPage() {
                   </option>
                 ))}
               </select>
-            </label>
-            <label className="text-sm">
-              Effective from
+            </div>
+            <div>
+              <label htmlFor="eligibility-effective-from" className="block font-semibold text-ink-secondary mb-1">Effective From *</label>
               <input
+                id="eligibility-effective-from"
                 data-testid="eligibility-effective-from"
                 type="date"
-                className="mt-1 w-full border rounded px-2 py-1.5"
+                className="w-full border border-line-strong rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-300 focus:outline-none"
                 value={effectiveFrom}
                 onChange={(e) => setEffectiveFrom(e.target.value)}
               />
-            </label>
-            <label className="text-sm flex items-center gap-2 pt-6">
+            </div>
+            <div>
+              <label htmlFor="eligibility-ineligible" className="flex items-center gap-2 font-semibold text-ink-secondary cursor-pointer pt-5">
+                <input
+                  id="eligibility-ineligible"
+                  type="checkbox"
+                  data-testid="eligibility-ineligible"
+                  checked={!isEligible}
+                  onChange={(e) => setIsEligible(!e.target.checked)}
+                  className="w-4 h-4 text-primary-600 rounded border-line-strong"
+                />
+                Mark as <span className="font-medium text-red-600">ineligible</span> (else eligible)
+              </label>
+            </div>
+            <div>
+              <label htmlFor="eligibility-reason" className="block font-semibold text-ink-secondary mb-1">Reason</label>
               <input
-                type="checkbox"
-                data-testid="eligibility-ineligible"
-                checked={!isEligible}
-                onChange={(e) => setIsEligible(!e.target.checked)}
-              />
-              Mark as <span className="font-medium text-rose-600">ineligible</span> (else eligible)
-            </label>
-            <label className="text-sm">
-              Reason
-              <input
+                id="eligibility-reason"
                 data-testid="eligibility-reason"
-                className="mt-1 w-full border rounded px-2 py-1.5"
+                className="w-full border border-line-strong rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-300 focus:outline-none"
                 value={reason}
                 placeholder="e.g. On unpaid suspension"
                 onChange={(e) => setReason(e.target.value)}
               />
-            </label>
+            </div>
           </div>
-          <button
-            data-testid="eligibility-save"
-            onClick={handleSet}
-            disabled={saving}
-            className="mt-4 inline-flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-            Save eligibility
-          </button>
+          <div className="pt-4 border-t border-line mt-4">
+            <button
+              data-testid="eligibility-save"
+              onClick={handleSet}
+              disabled={saving}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white text-xs font-semibold rounded-lg hover:bg-primary-700 disabled:opacity-50 transition shadow-xs"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              Save Eligibility
+            </button>
+          </div>
         </div>
       )}
 
@@ -222,16 +234,20 @@ export default function EligibilityPage() {
           ...(canManage ? [{ key: "actions", header: "", headerClassName: "text-right" }] : []),
         ]}
         rows={employees}
-        empty={              <div className="p-6 text-center text-ink-faint text-sm">No employees found.</div>
+        empty={
+          <EmptyState
+            title="No employees found"
+            description="Employee eligibility data will appear here."
+          />
         }
         renderRow={(e: Emp) => {
           const cur = currentEligibility(eligibility, e.id, today);
           const ineligible = cur?.is_eligible === false;
           return (
-            <tr key={e.id} className="border-t">
-              <td className="px-4 py-2">{e.full_name}</td>
-              <td className="px-4 py-2">{e.employee_code}</td>
-              <td className="px-4 py-2">
+            <tr key={e.id} className="hover:bg-surface-muted/50 transition">
+              <td className="px-4 py-3 font-bold text-ink">{e.full_name}</td>
+              <td className="px-4 py-3 font-mono text-ink-secondary">{e.employee_code}</td>
+              <td className="px-4 py-3">
                 {ineligible ? (
                   <span className="inline-flex items-center gap-1">
                     <XCircle className="h-4 w-4 text-rose-600" aria-hidden="true" />
@@ -246,10 +262,10 @@ export default function EligibilityPage() {
                 {cur?.source === "hr_override" && (                    <span className="ml-2 text-xs text-ink-faint">(override)</span>
                 )}
               </td>
-              <td className="px-4 py-2">{cur?.effective_from ? formatDateIndian(cur.effective_from) : "—"}</td>
-              <td className="px-4 py-2">{cur?.reason || "—"}</td>
+              <td className="px-4 py-3 font-mono text-ink-muted text-[11px]">{cur?.effective_from ? formatDateIndian(cur.effective_from) : "—"}</td>
+              <td className="px-4 py-3 text-ink-secondary">{cur?.reason || "—"}</td>
               {canManage && (
-                <td className="px-4 py-2 text-right">
+                <td className="px-4 py-3 text-right">
                   {cur?.id && (
                     <button
                       data-testid={`eligibility-remove-${e.id}`}

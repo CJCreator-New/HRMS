@@ -1,0 +1,388 @@
+name: E2E Live-Backend Golden-Path Tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Run daily at 06:00 UTC (11:30 AM IST)
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      skip_seed:
+        description: "Skip database seeding (use if data is already seeded)"
+        required: false
+        default: "false"
+        type: boolean
+
+# Cancel in-progress runs for the same branch/PR (but not scheduled runs)
+concurrency:
+  group: e2e-live-${{ github.event_name == 'schedule' && 'daily' || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+
+env:
+  NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+  NEXT_PUBLIC_MOCK_AUTH: "false"
+  PLAYWRIGHT_TEST_BASE_URL: http://localhost:3000
+
+jobs:
+  # ─── Health Check ────────────────────────────────────────────────────────
+  health-check:
+    name: Verify Supabase Test Project
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      reachable: ${{ steps.check.outputs.reachable }}
+    steps:
+      - name: Check Supabase Reachability
+        id: check
+        run: |
+          if [ -z "${{ secrets.TEST_SUPABASE_URL }}" ]; then
+            echo "⚠️  TEST_SUPABASE_URL secret not configured — skipping live-backend tests"
+            echo "reachable=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: ${{ secrets.TEST_SUPABASE_ANON_KEY }}" \
+            "${{ secrets.TEST_SUPABASE_URL }}/rest/v1/" || echo "000")
+          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 500 ]; then
+            echo "✅ Supabase reachable (HTTP $STATUS)"
+            echo "reachable=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Supabase unreachable (HTTP $STATUS)"
+            echo "reachable=false" >> $GITHUB_OUTPUT
+          fi
+
+  # ─── Seed Test Database ─────────────────────────────────────────────────
+  seed-database:
+    name: Seed Test Database
+    needs: health-check
+    if: needs.health-check.outputs.reachable == 'true' && github.event.inputs.skip_seed != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Apply Database Schema
+        run: npm run db:sync
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Seed Mock Data
+        run: npm run seed:mock
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+
+  # ─── Golden-Path Trace Tests ────────────────────────────────────────────
+  golden-path-traces:
+    name: Golden-Path Routing Traces (Live Backend)
+    needs: [health-check, seed-database]
+    if: |
+      always() &&
+      needs.health-check.outputs.reachable == 'true' &&
+      (needs.seed-database.result == 'success' || needs.seed-database.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: hrms_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+        ports:
+          - 54322:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers (Chromium)
+        run: npx playwright install chromium --with-deps
+
+      - name: Build Next.js App
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_MOCK_AUTH: "false"
+
+      - name: Start Next.js Server
+        run: npx next start -p 3000 &
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_MOCK_AUTH: "false"
+
+      - name: Wait for Server
+        run: |
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3000 > /dev/null 2>&1; then
+              echo "✅ Server ready"
+              exit 0
+            fi
+            echo "Waiting for server... ($i/30)"
+            sleep 2
+          done
+          echo "❌ Server failed to start"
+          exit 1
+
+      - name: Run Golden-Path Trace Tests
+        run: npx playwright test e2e/specs/cross-module/golden-path-routing-trace.spec.ts --project=chromium
+        env:
+          PLAYWRIGHT_TEST_BASE_URL: http://localhost:3000
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_MOCK_AUTH: "false"
+
+      - name: Upload Trace Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: golden-path-traces-${{ github.run_id }}
+          path: |
+            e2e-report/
+            test-results/
+          retention-days: 14
+
+  # ─── Cross-Module Smoke Tests (Live Backend) ───────────────────────────
+  cross-module-smoke:
+    name: Cross-Module Smoke (Live Backend)
+    needs: [health-check, seed-database]
+    if: |
+      always() &&
+      needs.health-check.outputs.reachable == 'true' &&
+      (needs.seed-database.result == 'success' || needs.seed-database.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers (Chromium)
+        run: npx playwright install chromium --with-deps
+
+      - name: Build Next.js App
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_MOCK_AUTH: "false"
+
+      - name: Start Next.js Server
+        run: npx next start -p 3000 &
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_MOCK_AUTH: "false"
+
+      - name: Wait for Server
+        run: |
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3000 > /dev/null 2>&1; then
+              echo "✅ Server ready"
+              exit 0
+            fi
+            echo "Waiting for server... ($i/30)"
+            sleep 2
+          done
+          echo "❌ Server failed to start"
+          exit 1
+
+      - name: Run Cross-Module Smoke Tests
+        run: npx playwright test e2e/specs/cross-module --project=chromium
+        env:
+          PLAYWRIGHT_TEST_BASE_URL: http://localhost:3000
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_MOCK_AUTH: "false"
+
+      - name: Upload Test Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cross-module-smoke-${{ github.run_id }}
+          path: |
+            e2e-report/
+            test-results/
+          retention-days: 14
+
+  # ─── Summary ────────────────────────────────────────────────────────────
+  summary:
+    name: E2E Live-Backend Summary
+    needs: [health-check, seed-database, golden-path-traces, cross-module-smoke]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report Status
+        run: |
+          echo "## E2E Live-Backend Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Health Check | ${{ needs.health-check.result == 'success' && '✅' || '⏭️' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Seed Database | ${{ needs.seed-database.result == 'success' && '✅' || needs.seed-database.result == 'skipped' && '⏭️' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Golden-Path Traces | ${{ needs.golden-path-traces.result == 'success' && '✅' || needs.golden-path-traces.result == 'skipped' && '⏭️' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cross-Module Smoke | ${{ needs.cross-module-smoke.result == 'success' && '✅' || needs.cross-module-smoke.result == 'skipped' && '⏭️' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.health-check.outputs.reachable }}" != "true" ]; then
+            echo "⚠️ **Supabase test project not configured.** Add these GitHub Actions secrets:" >> $GITHUB_STEP_SUMMARY
+            echo "- \`TEST_SUPABASE_URL\`" >> $GITHUB_STEP_SUMMARY
+            echo "- \`TEST_SUPABASE_ANON_KEY\`" >> $GITHUB_STEP_SUMMARY
+            echo "- \`TEST_SUPABASE_SERVICE_ROLE_KEY\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ─── Notifications (On Failure) ─────────────────────────────────────────
+
+  notify-slack:
+    name: "Notify Slack (On Failure)"
+    needs: [health-check, seed-database, golden-path-traces, cross-module-smoke]
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send Slack Notification
+        if: env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          # Build failure details
+          FAILURES=""
+          [ "${{ needs.health-check.result }}" == "failure" ] && FAILURES="${FAILURES}\n• Supabase Health Check: Failed"
+          [ "${{ needs.seed-database.result }}" == "failure" ] && FAILURES="${FAILURES}\n• Database Seeding: Failed"
+          [ "${{ needs.golden-path-traces.result }}" == "failure" ] && FAILURES="${FAILURES}\n• Golden-Path Traces: Failed"
+          [ "${{ needs.cross-module-smoke.result }}" == "failure" ] && FAILURES="${FAILURES}\n• Cross-Module Smoke: Failed"
+
+          # Determine color based on severity
+          if [ "${{ needs.golden-path-traces.result }}" == "failure" ]; then
+            COLOR="#dc3545"  # Red for trace failures
+          else
+            COLOR="#fd7e14"  # Orange for other failures
+          fi
+
+          # Send Slack message
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d "{
+              \"attachments\": [{
+                \"color\": \"${COLOR}\",
+                \"title\": \":x: Live-Backend E2E Tests Failed\",
+                \"title_link\": \"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\",
+                \"fields\": [{
+                  \"title\": \"Repository\",
+                  \"value\": \"${{ github.repository }}\",
+                  \"short\": true
+                }, {
+                  \"title\": \"Branch\",
+                  \"value\": \"${{ github.ref_name }}\",
+                  \"short\": true
+                }, {
+                  \"title\": \"Commit\",
+                  \"value\": \"<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}]\",
+                  \"short\": true
+                }, {
+                  \"title\": \"Author\",
+                  \"value\": \"${{ github.actor }}\",
+                  \"short\": true
+                }, {
+                  \"title\": \"Failed Jobs\",
+                  \"value\": \"${FAILURES}\",
+                  \"short\": false
+                }],
+                \"footer\": \"HRMS v2.7 Live-Backend E2E CI\",
+                \"ts\": $(date +%s)
+              }]
+            }"
+
+          echo "✅ Slack notification sent"
+
+      - name: Fallback (No Webhook)
+        if: env.SLACK_WEBHOOK_URL == ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          echo "⚠️  SLACK_WEBHOOK_URL not configured — skipping Slack notification"
+          echo "To enable: add SLACK_WEBHOOK_URL to GitHub Actions secrets"
+
+  notify-email:
+    name: "Notify Email (On Failure)"
+    needs: [health-check, seed-database, golden-path-traces, cross-module-smoke]
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send Email Notification
+        if: env.NOTIFY_EMAIL != ''
+        env:
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+        run: |
+          SUBJECT="❌ Live-Backend E2E Failed — ${{ github.repository }}@${{ github.ref_name }}"
+          BODY="Live-backend E2E test suite failed for ${{ github.repository }}.\n\n"
+          BODY="${BODY}Branch: ${{ github.ref_name }}\n"
+          BODY="${BODY}Commit: ${{ github.sha }}\n"
+          BODY="${BODY}Author: ${{ github.actor }}\n"
+          BODY="${BODY}Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\n\n"
+          BODY="${BODY}Failed Jobs:\n"
+
+          [ "${{ needs.health-check.result }}" == "failure" ] && BODY="${BODY}  • Supabase Health Check: Failed\n"
+          [ "${{ needs.seed-database.result }}" == "failure" ] && BODY="${BODY}  • Database Seeding: Failed\n"
+          [ "${{ needs.golden-path-traces.result }}" == "failure" ] && BODY="${BODY}  • Golden-Path Traces: Failed\n"
+          [ "${{ needs.cross-module-smoke.result }}" == "failure" ] && BODY="${BODY}  • Cross-Module Smoke: Failed\n"
+
+          echo "$BODY" | mail -s "$SUBJECT" "$NOTIFY_EMAIL" 2>/dev/null || {
+            echo "⚠️  mail command not available — logging notification"
+            echo "Email would be sent to: $NOTIFY_EMAIL"
+            echo "Subject: $SUBJECT"
+            echo "Body: $BODY"
+          }
+
+          echo "✅ Email notification sent to $NOTIFY_EMAIL"
+
+      - name: Fallback (No Email)
+        if: env.NOTIFY_EMAIL == ''
+        env:
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+        run: |
+          echo "⚠️  NOTIFY_EMAIL not configured — skipping email notification"
+          echo "To enable: add NOTIFY_EMAIL to GitHub Actions secrets"

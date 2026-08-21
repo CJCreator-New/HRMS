@@ -60,13 +60,16 @@ export async function globalSearchAction(query: string) {
 }
 
 export async function getCalendarDataAction() {
+  const caller = await getAuthenticatedCaller();
+  if (!caller) return { holidays: [], templates: [], defaultTemplateId: "", selectedOptional: [] };
+
   const supabase = await createClient();
 
   const [{ data: holidays }, { data: templates }] = await Promise.all([
     supabase
       .from("holidays")
       .select("*")
-      .order("date", { ascending: true }),
+      .order("holiday_date", { ascending: true }),
     supabase
       .from("work_calendar_templates")
       .select("*"),
@@ -74,21 +77,13 @@ export async function getCalendarDataAction() {
 
   const defaultTemplate = (templates || [])[0];
 
-  const { data: { user } } = await supabase.auth.getUser();
   let selectedOptional: string[] = [];
-  if (user) {
-    const { data: emp } = await supabase
-      .from("employees")
-      .select("id")
-      .eq("auth_user_id", user.id)
-      .single();
-    if (emp) {
-      const { data: sel } = await supabase
-        .from("employee_optional_holiday_selections")
-        .select("holiday_id")
-        .eq("employee_id", emp.id);
-      selectedOptional = ((sel || []) as Array<{ holiday_id: string }>).map((s) => s.holiday_id);
-    }
+  if (caller?.employeeId) {
+    const { data: sel } = await supabase
+      .from("employee_optional_holiday_selections")
+      .select("holiday_id")
+      .eq("employee_id", caller.employeeId);
+    selectedOptional = ((sel || []) as Array<{ holiday_id: string }>).map((s) => s.holiday_id);
   }
 
   return {
@@ -158,19 +153,16 @@ export async function getSalaryDataAction(targetEmployeeId?: string) {
 }
 
 export async function getPayrollDataAction() {
+  const permError = await assertPermission("payroll.view");
+  if (permError) return { periods: [], payslips: [], error: permError.error };
+
+  const caller = await getAuthenticatedCaller();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { periods: [], payslips: [] };
 
-  const { data: emp } = await supabase
-    .from("employees")
-    .select("id")
-    .eq("auth_user_id", user.id)
-    .single();
-
-  const { data: hasViewAll } = await supabase.rpc("has_permission", {
-    perm_code: "payroll.view",
-  });
+  const employeeId = caller?.employeeId;
+  const callerRoles = caller?.roles || [];
+  // Only payroll_admin and hr see all payslips; others see only their own
+  const hasViewAll = callerRoles.includes("payroll_admin") || callerRoles.includes("hr") || callerRoles.includes("system_admin");
 
   const [{ data: periods }, { data: payslips }] = await Promise.all([
     supabase
@@ -188,7 +180,7 @@ export async function getPayrollDataAction() {
       : supabase
           .from("payslips")
           .select("*, employees(full_name, employee_code)")
-          .eq("employee_id", emp?.id || "")
+          .eq("employee_id", employeeId || "")
           .order("created_at", { ascending: false }),
   ]);
 
@@ -205,28 +197,25 @@ export async function runPayrollAction(periodId: string) {
 }
 
 export async function getReimbursementDataAction() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { categories: [], claims: [], employeeId: null };
+  const permError = await assertAnyPermission(["reimbursement.apply.self", "reimbursement.view.all", "reimbursement.view.team"]);
+  if (permError) return { categories: [], claims: [], employeeId: null, error: permError.error };
 
-  const { data: emp } = await supabase
-    .from("employees")
-    .select("id")
-    .eq("auth_user_id", user.id)
-    .single();
+  const caller = await getAuthenticatedCaller();
+  const supabase = await createClient();
+  const employeeId = caller?.employeeId;
 
   const [{ data: categories }, { data: claims }] = await Promise.all([
     supabase.from("reimbursement_categories").select("*").order("name"),
     supabase
       .from("reimbursement_claims")
       .select("*, reimbursement_categories(name, is_taxable), employees(full_name)")
-      .eq("employee_id", emp?.id || "")
+      .eq("employee_id", employeeId || "")
       .order("created_at", { ascending: false })
       .limit(20),
   ]);
 
   return {
-    employeeId: emp?.id || null,
+    employeeId: employeeId || null,
     categories: categories || [],
     claims: claims || [],
   };
@@ -240,22 +229,17 @@ export async function approveReimbursementAction(claimId: string, decision: "app
 }
 
 export async function getEncashmentDataAction() {
+  const permError = await assertAnyPermission(["leave.encash.apply.self", "leave.encash.approve"]);
+  if (permError) return { encashments: [], carryForwardLogs: [], employeeId: null, error: permError.error };
+
+  const caller = await getAuthenticatedCaller();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { encashments: [], carryForwardLogs: [], employeeId: null };
 
-  const { data: emp } = await supabase
-    .from("employees")
-    .select("id")
-    .eq("auth_user_id", user.id)
-    .single();
-
-  const { data: hasViewAll } = await supabase.rpc("has_permission", {
-    perm_code: "leave.encash.approve",
-  });
+  const employeeId = caller?.employeeId;
+  const hasApprove = (await assertPermission("leave.encash.approve")) === null;
 
   const [{ data: encashments }, { data: carryForwardLogs }] = await Promise.all([
-    hasViewAll
+    hasApprove
       ? supabase
           .from("leave_encashment_requests")
           .select("*, employees(full_name)")
@@ -264,9 +248,9 @@ export async function getEncashmentDataAction() {
       : supabase
           .from("leave_encashment_requests")
           .select("*, employees(full_name)")
-          .eq("employee_id", emp?.id || "")
+          .eq("employee_id", employeeId || "")
           .order("created_at", { ascending: false }),
-    hasViewAll
+    hasApprove
       ? supabase
           .from("leave_carry_forward_logs")
           .select("*, employees(full_name)")
@@ -275,12 +259,12 @@ export async function getEncashmentDataAction() {
       : supabase
           .from("leave_carry_forward_logs")
           .select("*, employees(full_name)")
-          .eq("employee_id", emp?.id || "")
+          .eq("employee_id", employeeId || "")
           .order("created_at", { ascending: false }),
   ]);
 
   return {
-    employeeId: emp?.id || null,
+    employeeId: employeeId || null,
     encashments: encashments || [],
     carryForwardLogs: carryForwardLogs || [],
   };

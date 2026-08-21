@@ -4,6 +4,14 @@
 -- Target File: schema/15_audit.sql
 -- Strictly aligned with FR §8.1
 -- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS & trigger),
+--               02_org.sql (employees table — audit trigger),
+--               07_salary.sql (employee_salary_structures — audit trigger),
+--               09_payroll.sql (payroll_revisions — audit trigger)
+-- DEPENDENTS: None (leaf module — triggers fire on existing tables)
+-- Provides: audit_logs table, log_entity_audit() generic trigger function,
+--           trg_audit_employees, trg_audit_salary, trg_audit_payroll_revisions triggers========
 
 -- 1. Immutable Audit Trail Table (§8.1)
 create table audit_logs (

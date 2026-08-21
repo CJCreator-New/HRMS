@@ -65,6 +65,15 @@ export const E2E_MOCK_ALLOWED_ROUTES: Record<string, string[] | "ALL"> = {
     "/encashment", "/documents", "/jobs",
     "/reports", "/settings", "/audit",
   ],
+  "statutory.admin@company.com": [
+    "/", "/statutory", "/payroll", "/eligibility", "/reports", "/documents", "/employees",
+  ],
+  "finance.admin@company.com": [
+    "/", "/reimbursements", "/offboarding", "/payroll", "/reports", "/documents", "/employees",
+  ],
+  "it.admin@company.com": [
+    "/", "/settings", "/audit", "/jobs", "/documents", "/employees",
+  ],
   // Lifecycle personas: active-workforce states get employee routes;
   // suspended/offboarded have access revoked (CONTEXT.md domain model), so
   // they are deny-all — they exist to be acted on, not to log in.
@@ -131,6 +140,9 @@ export function resolveMockEmployeeIdFromEmail(email: string): string | null {
     "suspended.emp@company.com": "00000000-0000-0000-0000-000000000112",
     "notice.emp@company.com": "00000000-0000-0000-0000-000000000113",
     "offboarded.emp@company.com": "00000000-0000-0000-0000-000000000114",
+    "statutory.admin@company.com": "00000000-0000-0000-0000-000000000115",
+    "finance.admin@company.com": "00000000-0000-0000-0000-000000000116",
+    "it.admin@company.com": "00000000-0000-0000-0000-000000000117",
   };
   return map[email] || null;
 }
@@ -148,6 +160,9 @@ export function resolveMockRolesFromEmail(
   if (email.includes("hr.alt")) return { roles: ["hr"], mustChangePassword: false };
   if (email.includes("payroll")) return { roles: ["payroll_admin"], mustChangePassword: false };
   if (email.includes("manager")) return { roles: ["manager"], mustChangePassword: false };
+  if (email.includes("statutory.admin")) return { roles: ["statutory_admin"], mustChangePassword: false };
+  if (email.includes("finance.admin")) return { roles: ["finance_admin"], mustChangePassword: false };
+  if (email.includes("it.admin")) return { roles: ["it_admin"], mustChangePassword: false };
   if (email.includes("invited")) return { roles: ["employee"], mustChangePassword: true };
   return { roles: ["employee"], mustChangePassword: false };
 }

@@ -1,33 +1,39 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { assertPermission } from "@/lib/auth/assertPermission";
+import { assertPermission, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 
 export async function getNotificationsAction() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { notifications: [], unread: 0 };
+  const caller = await getAuthenticatedCaller();
+  let employeeId = caller?.employeeId;
 
-  const { data: emp } = await supabase
-    .from("employees")
-    .select("id")
-    .eq("auth_user_id", user.id)
-    .single();
+  if (!employeeId) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { notifications: [], unread: 0 };
 
-  if (!emp) return { notifications: [], unread: 0 };
+    const { data: emp } = await supabase
+      .from("employees")
+      .select("id")
+      .eq("auth_user_id", user.id)
+      .single();
+
+    if (!emp) return { notifications: [], unread: 0 };
+    employeeId = emp.id;
+  }
 
   const [{ data: notifications }, { count: unreadCount }] = await Promise.all([
     supabase
       .from("inbox_notifications")
       .select("*")
-      .eq("recipient_id", emp.id)
+      .eq("recipient_id", employeeId)
       .order("created_at", { ascending: false })
       .limit(20),
     supabase
       .from("inbox_notifications")
       .select("id", { count: "exact", head: true })
-      .eq("recipient_id", emp.id)
+      .eq("recipient_id", employeeId)
       .eq("is_read", false),
   ]);
 
@@ -65,21 +71,27 @@ export async function markAllNotificationsReadAction() {
   if (permError) return permError;
 
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Unauthenticated" };
+  const caller = await getAuthenticatedCaller();
+  let employeeId = caller?.employeeId;
 
-  const { data: emp } = await supabase
-    .from("employees")
-    .select("id")
-    .eq("auth_user_id", user.id)
-    .single();
+  if (!employeeId) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Unauthenticated" };
 
-  if (!emp) return { error: "Employee not found" };
+    const { data: emp } = await supabase
+      .from("employees")
+      .select("id")
+      .eq("auth_user_id", user.id)
+      .single();
+
+    if (!emp) return { error: "Employee not found" };
+    employeeId = emp.id;
+  }
 
   const { error } = await supabase
     .from("inbox_notifications")
     .update({ is_read: true, read_at: new Date().toISOString() })
-    .eq("recipient_id", emp.id)
+    .eq("recipient_id", employeeId)
     .eq("is_read", false);
 
   if (error) return { error: error.message };
@@ -93,6 +105,9 @@ export async function createNotificationAction(
   actionUrl?: string
 ) {
   try {
+    const authError = await assertPermission('settings.manage');
+    if (authError) return { error: authError.error };
+
     title = sanitizeInput(title);
     message = sanitizeInput(message);
     if (actionUrl) actionUrl = sanitizeInput(actionUrl);

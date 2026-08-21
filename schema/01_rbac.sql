@@ -4,6 +4,16 @@
 -- Target File: schema/01_rbac.sql
 -- Strictly aligned with FR §1.1, §1.2, & §1.3
 -- ============================================================================
+--
+-- DEPENDENCIES: 02_org.sql (employees table, is_current_manager_of())
+--               Note: Circular ref with 02_org — PostgreSQL resolves via
+--               deferred body validation; both files must be applied together.
+-- DEPENDENTS: 02_org.sql, 03_settings.sql, 04_work_calendar.sql,
+--             05_attendance.sql, 06_leave.sql, 07_salary.sql, and ALL
+--             subsequent modules (RLS policies call has_permission/auth_employee_id)
+-- Provides: roles, permissions, role_permissions, employee_roles tables,
+--           auth_employee_id(), has_permission(), has_any_permission(),
+--           acted_as_approver(), block_self_grant_of_approval_permission() trigger========
 
 -- 1. Core Tables
 create table roles (
@@ -38,9 +48,22 @@ create table employee_roles (
 );
 
 -- Helper: Map auth.uid() to employees.id
+-- Raises an exception if no employee record exists for the authenticated user.
+-- This prevents silent access denial — callers get a clear error instead of
+-- empty data. The login flow auto-provisions employee records on first login.
 create or replace function auth_employee_id() returns uuid
-language sql stable as $$
-  select id from employees where auth_user_id = auth.uid() limit 1;
+language plpgsql stable as $$
+declare
+  v_emp_id uuid;
+begin
+  select id into v_emp_id from employees where auth_user_id = auth.uid() limit 1;
+
+  if v_emp_id is null then
+    raise exception 'No employee record found for authenticated user (auth.uid=%). Contact your administrator to complete onboarding.', auth.uid();
+  end if;
+
+  return v_emp_id;
+end;
 $$;
 
 -- 2. Permission Evaluation Function (§1.2 Scope Matching)
@@ -54,6 +77,15 @@ declare
 begin
   if acting_id is null then
     return false;
+  end if;
+
+  -- System Admin bypass
+  if exists (
+    select 1 from employee_roles er
+    join roles r on r.id = er.role_id
+    where er.employee_id = acting_id AND r.code = 'system_admin'
+  ) then
+    return true;
   end if;
 
   -- Exact permission match

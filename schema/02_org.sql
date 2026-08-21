@@ -4,6 +4,18 @@
 -- Target File: schema/02_org.sql
 -- Strictly aligned with FR §2.1–§2.6 & ADR 0001
 -- ============================================================================
+--
+-- DEPENDENCIES: 00_setup.sql (set_updated_at trigger fn)
+--               01_rbac.sql (auth_employee_id, has_permission for RLS policies)
+--               Note: Circular ref with 01_rbac — both files must be applied together.
+-- DEPENDENTS: 03_settings.sql, 04_work_calendar.sql, 05_attendance.sql,
+--             06_leave.sql, 07_salary.sql, and ALL subsequent modules
+--             (employees table is the core FK target for the entire schema)
+-- Provides: employees, departments, employee_department_assignment,
+--           employee_manager_assignment, employee_designation_assignment,
+--           employee_current_manager view, is_current_manager_of(),
+--           separation_records, offboarding_checklist, employee_import_batch,
+--           employee_import_row_result, enforce_employee_transition() trigger========
 
 -- 1. Employee Status Enum & Core Table
 create type employee_status as enum (

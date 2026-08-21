@@ -1,1012 +1,12 @@
--- ============================================================================
--- HRMS v2.7 — Master Combined Database Initializer Script
--- Generated Automatically via scripts/db-apply.mjs
--- Source: schema/00_setup.sql through 22_comprehensive_performance_indexes.sql + bootstrap
--- ============================================================================
+SET check_function_bodies = off;
 
--- BEGIN FILE: 00_setup.sql
--- ============================================================================
--- HRMS v2.7 — Module 00: Setup & Core Infrastructure
--- Database Target: PostgreSQL / Supabase
--- Target File: schema/00_setup.sql
--- ============================================================================
---
--- DEPENDENCIES: None (foundation file)
--- DEPENDENTS: 02_org.sql (set_updated_at), all subsequent modules
--- Provides: pgcrypto extension, btree_gist extension, set_updated_at(),
---           register_idempotency_key(), system_idempotency_keys table========
-
--- 1. Required PostgreSQL Extensions
-create extension if not exists "pgcrypto";
-create extension if not exists "btree_gist";
-
--- 2. Automatic Updated-At Timestamp Trigger Function
-create or replace function set_updated_at() returns trigger
-language plpgsql as $$
-begin
-  new.updated_at := now();
-  return new;
-end;
-$$;
-
--- 3. Idempotency Key Uniqueness Store & Enforcement Function (§8.4)
-create table system_idempotency_keys (
-  id             uuid primary key default gen_random_uuid(),
-  idempotency_key text not null,
-  scope          text not null, -- e.g. 'payroll_run', 'leave_application', 'employee_import'
-  created_at     timestamptz not null default now(),
-  unique (scope, idempotency_key)
-);
-
-create or replace function register_idempotency_key(p_key text, p_scope text) returns boolean
-language plpgsql as $$
-begin
-  if p_key is null or trim(p_key) = '' then
-    return true;
-  end if;
-
-  insert into system_idempotency_keys (idempotency_key, scope)
-  values (trim(p_key), trim(p_scope));
-
-  return true;
-exception when unique_violation then
-  raise exception 'Duplicate request detected for idempotency key % under scope % (§8.4)', p_key, p_scope;
-end;
-$$;
-
-
--- END FILE: 00_setup.sql
-
--- BEGIN FILE: 01_rbac.sql
--- ============================================================================
--- HRMS v2.7 — Module 01: Role-Based Access Control (RBAC)
--- Database Target: PostgreSQL / Supabase
--- Target File: schema/01_rbac.sql
--- Strictly aligned with FR §1.1, §1.2, & §1.3
--- ============================================================================
---
--- DEPENDENCIES: 02_org.sql (employees table, is_current_manager_of())
---               Note: Circular ref with 02_org — PostgreSQL resolves via
---               deferred body validation; both files must be applied together.
--- DEPENDENTS: 02_org.sql, 03_settings.sql, 04_work_calendar.sql,
---             05_attendance.sql, 06_leave.sql, 07_salary.sql, and ALL
---             subsequent modules (RLS policies call has_permission/auth_employee_id)
--- Provides: roles, permissions, role_permissions, employee_roles tables,
---           auth_employee_id(), has_permission(), has_any_permission(),
---           acted_as_approver(), block_self_grant_of_approval_permission() trigger========
-
--- 1. Core Tables
-create table roles (
-  id            uuid primary key default gen_random_uuid(),
-  code          text not null unique,   -- 'employee' | 'manager' | 'hr' | 'payroll_admin' | 'system_admin'
-  name          text not null,
-  is_system     boolean not null default true,
-  created_at    timestamptz not null default now()
-);
-
-create table permissions (
-  id            uuid primary key default gen_random_uuid(),
-  code          text not null unique,
-  description   text,
-  created_at    timestamptz not null default now()
-);
-
-create table role_permissions (
-  role_id        uuid not null references roles(id) on delete cascade,
-  permission_id  uuid not null references permissions(id) on delete cascade,
-  granted_by     uuid references employees(id),
-  granted_at     timestamptz not null default now(),
-  primary key (role_id, permission_id)
-);
-
-create table employee_roles (
-  employee_id   uuid not null references employees(id) on delete cascade,
-  role_id       uuid not null references roles(id) on delete cascade,
-  assigned_by   uuid references employees(id),
-  assigned_at   timestamptz not null default now(),
-  primary key (employee_id, role_id)
-);
-
--- Helper: Map auth.uid() to employees.id
--- Raises an exception if no employee record exists for the authenticated user.
--- This prevents silent access denial — callers get a clear error instead of
--- empty data. The login flow auto-provisions employee records on first login.
-create or replace function auth_employee_id() returns uuid
-language plpgsql stable as $$
-declare
-  v_emp_id uuid;
-begin
-  select id into v_emp_id from employees where auth_user_id = auth.uid() limit 1;
-
-  if v_emp_id is null then
-    raise exception 'No employee record found for authenticated user (auth.uid=%). Contact your administrator to complete onboarding.', auth.uid();
-  end if;
-
-  return v_emp_id;
-end;
-$$;
-
--- 2. Permission Evaluation Function (§1.2 Scope Matching)
-create or replace function has_permission(perm_code text, target_employee_id uuid default null)
-returns boolean language plpgsql stable as $$
-declare
-  acting_id uuid := auth_employee_id();
-  has_all boolean;
-  has_team boolean;
-  has_self boolean;
-begin
-  if acting_id is null then
-    return false;
-  end if;
-
-  -- System Admin bypass
-  if exists (
-    select 1 from employee_roles er
-    join roles r on r.id = er.role_id
-    where er.employee_id = acting_id AND r.code = 'system_admin'
-  ) then
-    return true;
-  end if;
-
-  -- Exact permission match
-  if exists (
-    select 1 from employee_roles er
-    join role_permissions rp on rp.role_id = er.role_id
-    join permissions p on p.id = rp.permission_id
-    where er.employee_id = acting_id and p.code = perm_code
-  ) then
-    return true;
-  end if;
-
-  if target_employee_id is null then
-    return false;
-  end if;
-
-  -- Scoped checks: .all / .self / .team
-  select exists (
-    select 1 from employee_roles er
-    join role_permissions rp on rp.role_id = er.role_id
-    join permissions p on p.id = rp.permission_id
-    where er.employee_id = acting_id and p.code = perm_code || '.all'
-  ) into has_all;
-  if has_all then return true; end if;
-
-  if target_employee_id = acting_id then
-    select exists (
-      select 1 from employee_roles er
-      join role_permissions rp on rp.role_id = er.role_id
-      join permissions p on p.id = rp.permission_id
-      where er.employee_id = acting_id and p.code = perm_code || '.self'
-    ) into has_self;
-    if has_self then return true; end if;
-  end if;
-
-  select exists (
-    select 1 from employee_roles er
-    join role_permissions rp on rp.role_id = er.role_id
-    join permissions p on p.id = rp.permission_id
-    where er.employee_id = acting_id and p.code = perm_code || '.team'
-  ) into has_team;
-  if has_team and is_current_manager_of(acting_id, target_employee_id) then
-    return true;
-  end if;
-
-  return false;
-end;
-$$;
-
--- Batch permission check: returns true if the acting employee holds ANY of the
--- given permission codes (exact match only — no scope suffix). Replaces the
--- N+1 has_permission loop in middleware for routes with multiple required
--- permissions (union gate).
-create or replace function has_any_permission(perm_codes text[])
-returns boolean language plpgsql stable as $$
-declare
-  acting_id uuid := auth_employee_id();
-begin
-  if acting_id is null then
-    return false;
-  end if;
-
-  return exists (
-    select 1 from employee_roles er
-    join role_permissions rp on rp.role_id = er.role_id
-    join permissions p on p.id = rp.permission_id
-    where er.employee_id = acting_id and p.code = any(perm_codes)
-  );
-end;
-$$;
-
--- Historical approval access check (§1.3)
-create or replace function acted_as_approver(acting_id uuid, approval_stage_table text, record_id uuid)
-returns boolean language plpgsql stable as $$
-begin
-  if acting_id is null then return false; end if;
-
-  if approval_stage_table = 'leave_request_approvals' then
-    return exists (
-      select 1 from leave_request_approvals
-      where leave_request_id = record_id and approver_id = acting_id
-    );
-  elsif approval_stage_table = 'attendance_corrections' then
-    return exists (
-      select 1 from attendance_corrections
-      where id = record_id and decided_by = acting_id
-    );
-  elsif approval_stage_table = 'reimbursement_claims' then
-    return exists (
-      select 1 from reimbursement_claims
-      where id = record_id and (manager_approver_id = acting_id or hr_approver_id = acting_id)
-    );
-  elsif approval_stage_table = 'ff_clearances' then
-    return exists (
-      select 1 from ff_clearances
-      where ff_settlement_id = record_id and cleared_by = acting_id
-    );
-  end if;
-
-  return false;
-end;
-$$;
-
--- 3. Self-Grant Control Trigger (§1.3)
-create or replace function block_self_grant_of_approval_permission() returns trigger
-language plpgsql as $$
-declare
-  approval_perm boolean;
-begin
-  select exists (
-    select 1 from permissions p
-    where p.id = new.permission_id
-      and (p.code like '%.approve%' or p.code like '%.finalize' or p.code like '%.publish' or p.code = 'ff.approve')
-  ) into approval_perm;
-
-  if approval_perm and exists (
-    select 1 from employee_roles er
-    where er.role_id = new.role_id and er.employee_id = auth_employee_id()
-  ) then
-    raise exception 'Self-grant of business-approval permission blocked (§1.3) — requires a second System Admin';
-  end if;
-  return new;
-end;
-$$;
-
-create trigger trg_block_self_grant
-  before insert on role_permissions
-  for each row execute function block_self_grant_of_approval_permission();
-
--- 4. Row Level Security
-alter table roles enable row level security;
-alter table permissions enable row level security;
-alter table role_permissions enable row level security;
-alter table employee_roles enable row level security;
-
-create policy roles_read on roles for select using (true);
-create policy roles_admin_write on roles for all
-  using (has_permission('settings.manage')) with check (has_permission('settings.manage'));
-
-create policy permissions_read on permissions for select using (true);
-create policy permissions_admin_write on permissions for all
-  using (has_permission('settings.manage')) with check (has_permission('settings.manage'));
-
-create policy role_permissions_read on role_permissions for select using (true);
-create policy role_permissions_admin_write on role_permissions for all
-  using (has_permission('settings.manage')) with check (has_permission('settings.manage'));
-
-create policy employee_roles_self_read on employee_roles for select
-  using (employee_id = auth_employee_id() or has_permission('employee.view', employee_id));
-create policy employee_roles_admin_write on employee_roles for insert
-  with check (has_permission('settings.manage'));
-create policy employee_roles_admin_update on employee_roles for update
-  using (has_permission('settings.manage')) with check (has_permission('settings.manage'));
-create policy employee_roles_admin_delete on employee_roles for delete
-  using (has_permission('settings.manage'));
-
--- 5. Seeds: Baseline Roles (§1.1)
-insert into roles (code, name, is_system) values
-  ('employee', 'Employee', true),
-  ('manager', 'Manager', true),
-  ('hr', 'HR Admin', true),
-  ('payroll_admin', 'Payroll Administrator', true),
-  ('system_admin', 'System Administrator', true),
-  ('statutory_admin', 'Statutory Administrator', true),
-  ('finance_admin', 'Finance Administrator', true),
-  ('it_admin', 'IT Administrator', true)
-on conflict (code) do nothing;
-
--- 6. Seeds: Exact Permission Catalog (§1.2 & Rollout Plan §2)
-insert into permissions (code, description) values
-  ('employee.view.self', 'View own employee profile'),
-  ('employee.view.team', 'View team employee profiles'),
-  ('employee.view.all', 'View all employee profiles'),
-  ('employee.create', 'Create new employee record'),
-  ('employee.edit', 'Edit employee profile details'),
-  ('employee.import', 'Perform bulk employee import'),
-  ('employee.deactivate', 'Deactivate employee system access'),
-  ('attendance.mark.self', 'Mark own attendance punch'),
-  ('attendance.mark.team', 'Mark attendance for team member'),
-  ('attendance.view.self', 'View own attendance records'),
-  ('attendance.view.team', 'View team attendance records'),
-  ('attendance.view.all', 'View all attendance records'),
-  ('attendance.correct.self', 'Submit attendance correction for self'),
-  ('attendance.correct.approve', 'Approve attendance corrections'),
-  ('attendance.correct.override', 'HR override attendance records'),
-  ('leave.view.self', 'View own leave requests and balances'),
-  ('leave.view.team', 'View team leave requests'),
-  ('leave.view.all', 'View all leave requests'),
-  ('leave.apply.self', 'Apply for leave'),
-  ('leave.approve.manager', 'Approve team leave requests as Manager'),
-  ('leave.approve.hr', 'Approve leave requests as HR Admin'),
-  ('leave.cancel.self', 'Cancel own leave request'),
-  ('leave.cancel.approve', 'Approve cancellation of approved leave'),
-  ('leave.manage_types', 'Configure leave types and quotas'),
-  ('leave.encash.apply.self', 'Apply for leave encashment'),
-  ('leave.encash.approve', 'Approve leave encashment'),
-  ('compoff.apply.self', 'Apply for Comp-Off grant'),
-  ('compoff.approve', 'Approve Comp-Off grant'),
-  ('compoff.credit.manual', 'Manually credit Comp-Off days'),
-  ('compoff.revoke', 'Revoke Comp-Off grant'),
-  ('permission.apply.self', 'Apply for short permission'),
-  ('permission.approve', 'Approve short permission'),
-  ('permission.override.quota', 'Override short permission monthly quota'),
-  ('salary.view.self', 'View own salary structure'),
-  ('salary.view.all', 'View all employee salary structures'),
-  ('salary.edit', 'Edit salary structures and assignments'),
-  ('salary.bulk_assign', 'Bulk assign salary structures and revisions'),
-  ('payroll.view', 'View payroll summary and runs'),
-  ('payroll.run', 'Initiate payroll run'),
-  ('payroll.reopen', 'Reopen payroll run for revision'),
-  ('payroll.finalize', 'Finalize payroll run'),
-  ('payroll.publish', 'Publish payslips to employees'),
-  ('payroll.schedule', 'Manage payroll schedule'),
-  ('statutory.view', 'View statutory profiles'),
-  ('statutory.edit', 'Manage statutory profiles'),
-  ('statutory.bulk_upsert', 'Bulk upsert employee statutory profiles'),
-  ('department.bulk_assign', 'Bulk assign employee departments and hierarchy'),
-  ('calendar.bulk_assign', 'Bulk assign employee work calendar templates'),
-  ('reimbursement.apply.self', 'Submit reimbursement claim'),
-  ('reimbursement.view.team', 'View team reimbursement claims'),
-  ('reimbursement.view.all', 'View all reimbursement claims'),
-  ('reimbursement.approve', 'Approve reimbursement claim'),
-  ('reimbursement.cancel.self', 'Cancel reimbursement claim'),
-  ('separation.view', 'View separation records'),
-  ('separation.create', 'Initiate resignation or termination'),
-  ('separation.edit', 'Manage separation notice period and LWD'),
-  ('offboarding.manage', 'Manage offboarding checklist tasks'),
-  ('ff.view', 'View full and final settlement'),
-  ('ff.create', 'Draft full and final settlement statement'),
-  ('ff.approve', 'Approve full and final settlement'),
-  ('attachment.upload', 'Upload document attachments'),
-  ('attachment.view', 'View document attachments'),
-  ('settings.manage', 'Manage system settings and RBAC'),
-  ('audit.view', 'View audit logs'),
-  ('job.view', 'View background job status'),
-  ('job.rerun', 'Trigger manual background job execution'),
-  ('reports.export', 'Export executive and compliance reports')
-on conflict (code) do nothing;
-
--- 7. Seeds: Baseline Role Permissions Mapping (§1.3 & Rollout Plan §2.3)
--- Employee Role Grants
-insert into role_permissions (role_id, permission_id)
-select r.id, p.id from roles r, permissions p
-where r.code = 'employee' and p.code in (
-  'employee.view.self', 'attendance.mark.self', 'attendance.view.self', 'attendance.correct.self',
-  'leave.view.self', 'leave.apply.self', 'leave.cancel.self', 'leave.encash.apply.self',
-  'compoff.apply.self', 'permission.apply.self', 'salary.view.self', 'reimbursement.apply.self',
-  'reimbursement.cancel.self', 'separation.view', 'attachment.upload', 'attachment.view'
-) on conflict do nothing;
-
--- Manager Role Grants
-insert into role_permissions (role_id, permission_id)
-select r.id, p.id from roles r, permissions p
-where r.code = 'manager' and p.code in (
-  'employee.view.self', 'attendance.mark.self', 'attendance.view.self', 'attendance.correct.self',
-  'leave.view.self', 'leave.apply.self', 'leave.cancel.self', 'leave.encash.apply.self',
-  'compoff.apply.self', 'permission.apply.self', 'salary.view.self', 'reimbursement.apply.self',
-  'reimbursement.cancel.self', 'attachment.upload', 'attachment.view',
-  'employee.view.team', 'attendance.mark.team', 'attendance.view.team', 'attendance.correct.approve',
-  'leave.view.team', 'leave.approve.manager', 'leave.cancel.approve', 'permission.approve',
-  'permission.override.quota', 'compoff.approve', 'reimbursement.approve', 'reimbursement.view.team',
-  'separation.create', 'separation.view', 'job.view'
-) on conflict do nothing;
-
--- HR Admin Role Grants
-insert into role_permissions (role_id, permission_id)
-select r.id, p.id from roles r, permissions p
-where r.code = 'hr' and p.code in (
-  'employee.view.all', 'employee.create', 'employee.edit', 'employee.import', 'employee.deactivate',
-  'attendance.view.all', 'attendance.correct.override', 'leave.view.all', 'leave.approve.hr',
-  'leave.cancel.approve', 'leave.manage_types', 'leave.encash.approve', 'salary.view.all', 'salary.edit',
-  'salary.bulk_assign', 'statutory.view', 'statutory.edit', 'statutory.bulk_upsert', 'department.bulk_assign',
-  'calendar.bulk_assign', 'reimbursement.approve', 'reimbursement.view.all', 'separation.view',
-  'separation.create', 'separation.edit', 'offboarding.manage', 'ff.create', 'ff.view', 'ff.approve',
-  'compoff.credit.manual', 'compoff.revoke', 'attachment.upload', 'attachment.view', 'reports.export',
-  'audit.view', 'settings.manage', 'job.view', 'job.rerun'
-) on conflict do nothing;
-
--- Payroll Admin Role Grants (Read-Only on Ops Data, No Approval Perms per Q11 / FR §5.7)
-insert into role_permissions (role_id, permission_id)
-select r.id, p.id from roles r, permissions p
-where r.code = 'payroll_admin' and p.code in (
-  'salary.view.all', 'salary.edit', 'salary.bulk_assign', 'payroll.view', 'payroll.run', 'payroll.reopen',
-  'payroll.finalize', 'payroll.publish', 'payroll.schedule', 'statutory.view', 'statutory.edit',
-  'statutory.bulk_upsert', 'ff.view', 'reports.export', 'employee.view.all', 'attendance.view.all',
-  'leave.view.all', 'reimbursement.view.all', 'attachment.view'
-) on conflict do nothing;
-
--- System Admin Role Grants (Technical-Only Seed per Q5)
-insert into role_permissions (role_id, permission_id)
-select r.id, p.id from roles r, permissions p
-where r.code = 'system_admin' and p.code in (
-  'settings.manage', 'audit.view', 'job.view', 'job.rerun', 'employee.view.all',
-  'department.bulk_assign', 'calendar.bulk_assign'
-) on conflict do nothing;
-
--- Statutory Admin Role Grants
-insert into role_permissions (role_id, permission_id)
-select r.id, p.id from roles r, permissions p
-where r.code = 'statutory_admin' and p.code in (
-  'statutory.view', 'statutory.edit', 'employee.view.all', 'salary.view.all',
-  'payroll.view', 'reports.export', 'attachment.view'
-) on conflict do nothing;
-
--- Finance Admin Role Grants
-insert into role_permissions (role_id, permission_id)
-select r.id, p.id from roles r, permissions p
-where r.code = 'finance_admin' and p.code in (
-  'reimbursement.approve', 'reimbursement.view.all', 'ff.view', 'ff.approve',
-  'payroll.view', 'reports.export', 'employee.view.all', 'attachment.view'
-) on conflict do nothing;
-
--- IT Admin Role Grants
-insert into role_permissions (role_id, permission_id)
-select r.id, p.id from roles r, permissions p
-where r.code = 'it_admin' and p.code in (
-  'attachment.upload', 'attachment.view', 'audit.view', 'job.view', 'job.rerun',
-  'employee.view.all', 'settings.manage'
-) on conflict do nothing;
-
-
--- END FILE: 01_rbac.sql
-
--- BEGIN FILE: 02_org.sql
--- ============================================================================
--- HRMS v2.7 — Module 02: Employee Lifecycle & Org Structure
--- Database Target: PostgreSQL / Supabase
--- Target File: schema/02_org.sql
--- Strictly aligned with FR §2.1–§2.6 & ADR 0001
--- ============================================================================
---
--- DEPENDENCIES: 00_setup.sql (set_updated_at trigger fn)
---               01_rbac.sql (auth_employee_id, has_permission for RLS policies)
---               Note: Circular ref with 01_rbac — both files must be applied together.
--- DEPENDENTS: 03_settings.sql, 04_work_calendar.sql, 05_attendance.sql,
---             06_leave.sql, 07_salary.sql, and ALL subsequent modules
---             (employees table is the core FK target for the entire schema)
--- Provides: employees, departments, employee_department_assignment,
---           employee_manager_assignment, employee_designation_assignment,
---           employee_current_manager view, is_current_manager_of(),
---           separation_records, offboarding_checklist, employee_import_batch,
---           employee_import_row_result, enforce_employee_transition() trigger========
-
--- 1. Employee Status Enum & Core Table
-create type employee_status as enum (
-  'invited', 'active', 'suspended', 'notice_period', 'offboarded', 'withdrawn'
-);
-
-create table employees (
-  id                   uuid primary key default gen_random_uuid(),
-  auth_user_id         uuid unique,
-  employee_code        text not null unique,
-  full_name            text not null,
-  email                text not null unique,
-  phone                text,
-  date_of_birth        date,
-  date_of_joining      date not null,
-  status               employee_status not null default 'invited',
-  must_change_password boolean not null default true, -- ADR 0001
-  is_deactivated       boolean not null default false, -- Access revocation flag (§2.5)
-  invitation_sent_at   timestamptz,
-  activated_at         timestamptz,
-  created_by           uuid references employees(id),
-  created_at           timestamptz not null default now(),
-  updated_at           timestamptz not null default now()
-);
-
--- 2. Status Transition Matrix & Audit Log
-create table employee_status_transition_log (
-  id             uuid primary key default gen_random_uuid(),
-  employee_id    uuid not null references employees(id) on delete cascade,
-  from_status    employee_status,
-  to_status      employee_status not null,
-  performed_by   uuid references employees(id),
-  reason         text,
-  created_at     timestamptz not null default now()
-);
-
-create or replace function is_valid_employee_transition(p_from employee_status, p_to employee_status)
-returns boolean language sql immutable as $$
-  select (p_from, p_to) in (
-    ('invited','active'), ('invited','withdrawn'),
-    ('active','suspended'), ('suspended','active'),
-    ('suspended','offboarded'),
-    ('active','notice_period'), ('notice_period','active'), ('notice_period','offboarded'),
-    ('active','offboarded')
-  )
-$$;
-
-create or replace function enforce_employee_transition() returns trigger
-language plpgsql as $$
-begin
-  if old.status is distinct from new.status then
-    if not is_valid_employee_transition(old.status, new.status) then
-      raise exception 'Invalid employee status transition: % -> % (§2.1)', old.status, new.status;
-    end if;
-    insert into employee_status_transition_log(employee_id, from_status, to_status, performed_by)
-      values (new.id, old.status, new.status, auth_employee_id());
-  end if;
-  new.updated_at := now();
-  return new;
-end;
-$$;
-
-create trigger trg_employee_status_transition
-  before update on employees
-  for each row execute function enforce_employee_transition();
-
--- 3. Departments
-create table departments (
-  id            uuid primary key default gen_random_uuid(),
-  name          text not null unique,
-  active        boolean not null default true,
-  created_at    timestamptz not null default now()
-);
-
--- 4. Effective-Dated Assignments (Department, Manager, Designation)
-create table employee_department_assignment (
-  id             uuid primary key default gen_random_uuid(),
-  employee_id    uuid not null references employees(id) on delete cascade,
-  department_id  uuid not null references departments(id),
-  effective_from date not null,
-  effective_to   date,
-  created_by     uuid references employees(id),
-  created_at     timestamptz not null default now(),
-  exclude using gist (
-    employee_id with =,
-    daterange(effective_from, coalesce(effective_to, 'infinity'::date), '[)') with &&
-  )
-);
-
-create table employee_manager_assignment (
-  id              uuid primary key default gen_random_uuid(),
-  employee_id     uuid not null references employees(id) on delete cascade,
-  manager_id      uuid references employees(id),
-  effective_from  date not null,
-  effective_to    date,
-  created_by      uuid references employees(id),
-  created_at      timestamptz not null default now(),
-  exclude using gist (
-    employee_id with =,
-    daterange(effective_from, coalesce(effective_to, 'infinity'::date), '[)') with &&
-  )
-);
-
-create table employee_designation_assignment (
-  id              uuid primary key default gen_random_uuid(),
-  employee_id     uuid not null references employees(id) on delete cascade,
-  title           text not null,
-  effective_from  date not null,
-  effective_to    date,
-  created_by      uuid references employees(id),
-  created_at      timestamptz not null default now(),
-  exclude using gist (
-    employee_id with =,
-    daterange(effective_from, coalesce(effective_to, 'infinity'::date), '[)') with &&
-  )
-);
-
--- 5. Helper Views & Functions
-create view employee_current_manager as
-  select employee_id, manager_id
-  from employee_manager_assignment
-  where effective_from <= current_date
-    and (effective_to is null or effective_to > current_date);
-
-create or replace function is_current_manager_of(p_manager_id uuid, p_employee_id uuid)
-returns boolean language sql stable as $$
-  select exists (
-    select 1 from employee_current_manager
-    where employee_id = p_employee_id and manager_id = p_manager_id
-  )
-$$;
-
--- 6. Separation & Offboarding Workflow (§2.2, §2.3)
-create type separation_type as enum ('resignation', 'termination');
-create type separation_status as enum ('pending', 'active', 'rescinded', 'completed', 'withdrawn');
-create type non_working_day_rule as enum ('previous_working_day', 'next_working_day');
-
-create table separation_records (
-  id                          uuid primary key default gen_random_uuid(),
-  employee_id                 uuid not null references employees(id) on delete cascade,
-  separation_type             separation_type not null,
-  initiated_by                uuid not null references employees(id),
-  separation_date              date not null,
-  notice_period_days           integer not null default 0,
-  last_working_day             date not null,
-  non_working_day_rule_applied non_working_day_rule,
-  status                       separation_status not null default 'pending',
-  reason                       text,
-  created_by                   uuid references employees(id),
-  created_at                   timestamptz not null default now(),
-  updated_at                   timestamptz not null default now()
-);
-
-create table offboarding_checklist (
-  id                        uuid primary key default gen_random_uuid(),
-  separation_id             uuid not null unique references separation_records(id) on delete cascade,
-  attendance_verified       boolean not null default false,
-  leave_balance_settled     boolean not null default false,
-  ff_completed              boolean not null default false,
-  access_revoked            boolean not null default false,
-  employee_marked_offboarded boolean not null default false,
-  updated_at                timestamptz not null default now()
-);
-
--- 7. Bulk Import Tables (§2.6)
-create type import_batch_status as enum ('processing', 'completed', 'completed_with_errors');
-create type import_row_status as enum ('success', 'failed');
-
-create table employee_import_batch (
-  id             uuid primary key default gen_random_uuid(),
-  uploaded_by    uuid not null references employees(id),
-  file_name      text not null,
-  total_rows     integer not null default 0,
-  success_count  integer not null default 0,
-  failure_count  integer not null default 0,
-  status         import_batch_status not null default 'processing',
-  created_at     timestamptz not null default now()
-);
-
-create table employee_import_row_result (
-  id             uuid primary key default gen_random_uuid(),
-  batch_id       uuid not null references employee_import_batch(id) on delete cascade,
-  row_number     integer not null,
-  status         import_row_status not null,
-  error_message  text,
-  employee_id    uuid references employees(id)
-);
-
--- 8. Row Level Security Policies
-alter table employees enable row level security;
-alter table employee_status_transition_log enable row level security;
-alter table departments enable row level security;
-alter table employee_department_assignment enable row level security;
-alter table employee_manager_assignment enable row level security;
-alter table employee_designation_assignment enable row level security;
-alter table separation_records enable row level security;
-alter table offboarding_checklist enable row level security;
-alter table employee_import_batch enable row level security;
-alter table employee_import_row_result enable row level security;
-
-create policy employees_read on employees for select
-  using (id = auth_employee_id() or has_permission('employee.view', id));
-create policy employees_update on employees for update
-  using (has_permission('employee.edit', id));
-create policy employees_insert on employees for insert
-  with check (has_permission('employee.create'));
-
-create policy departments_read on departments for select using (true);
-create policy departments_write on departments for all
-  using (has_permission('settings.manage')) with check (has_permission('settings.manage'));
-
-create policy dept_assignment_read on employee_department_assignment for select
-  using (employee_id = auth_employee_id() or has_permission('employee.view', employee_id));
-create policy dept_assignment_write on employee_department_assignment for insert
-  with check (has_permission('employee.edit', employee_id));
-
-create policy manager_assignment_read on employee_manager_assignment for select
-  using (employee_id = auth_employee_id() or has_permission('employee.view', employee_id));
-create policy manager_assignment_write on employee_manager_assignment for insert
-  with check (has_permission('employee.edit', employee_id));
-
-create policy designation_assignment_read on employee_designation_assignment for select
-  using (employee_id = auth_employee_id() or has_permission('employee.view', employee_id));
-create policy designation_assignment_write on employee_designation_assignment for insert
-  with check (has_permission('employee.edit', employee_id));
-
-create policy separation_read on separation_records for select
-  using (employee_id = auth_employee_id() or has_permission('separation.view', employee_id));
-create policy separation_insert on separation_records for insert
-  with check (
-    employee_id = auth_employee_id()
-    or has_permission('separation.create.all')
-    or (separation_type = 'resignation' and is_current_manager_of(auth_employee_id(), employee_id))
-  );
-create policy separation_update on separation_records for update
-  using (has_permission('separation.edit', employee_id));
-
-create policy offboarding_checklist_hr on offboarding_checklist for all
-  using (has_permission('offboarding.manage')) with check (has_permission('offboarding.manage'));
-
-create policy import_batch_hr on employee_import_batch for all
-  using (has_permission('employee.import')) with check (has_permission('employee.import'));
-create policy import_row_hr on employee_import_row_result for select
-  using (has_permission('employee.import'));
-
-
--- END FILE: 02_org.sql
-
--- BEGIN FILE: 03_settings.sql
--- ============================================================================
--- HRMS v2.7 — Module 03: System Settings & Policy Configuration
--- Database Target: PostgreSQL / Supabase
--- Target File: schema/03_settings.sql
--- Strictly aligned with FR §1.4, §3.7, §5.3, §9 & ADR 0003
--- ============================================================================
---
--- DEPENDENCIES: 01_rbac.sql (has_permission for RLS),
---               02_org.sql (employees table for FK references)
--- DEPENDENTS: 04_work_calendar.sql (is_system_configured gate),
---             server actions (settings management)
--- Provides: company_settings, policy_configurations tables,
---           is_system_configured() function========
-
--- 1. Core Company Settings Table
-create table company_settings (
-  id                        uuid primary key default gen_random_uuid(),
-  company_name              text not null default 'My Company',
-  timezone                  text not null default 'Asia/Kolkata',
-  currency                  text not null default 'INR',
-  currency_symbol           text not null default '₹',
-  rounding_mode             text not null default 'half_up', -- 'half_up' | 'truncate' | 'round'
-  invitation_expiry_days    integer default 7,
-  notice_period_days_default integer,
-  manager_sla_days          integer default 2, -- FR §4.2 window in days
-  alternate_hr_approver_id  uuid references employees(id), -- FR §1.4 singular HR alternate
-  is_configured             boolean not null default false, -- Engine unlock gate flag
-  updated_by                uuid references employees(id),
-  updated_at                timestamptz not null default now()
-);
-
--- 2. Flexible Policy Configurations (JSONB structured settings)
-create table policy_configurations (
-  id             uuid primary key default gen_random_uuid(),
-  category       text not null, -- 'leave' | 'attendance' | 'payroll' | 'reimbursement'
-  key            text not null unique,
-  value          jsonb not null,
-  description    text,
-  updated_by     uuid references employees(id),
-  updated_at     timestamptz not null default now()
-);
-
--- 3. Engine Unlock Gate Helper Function
-create or replace function is_system_configured() returns boolean
-language sql stable as $$
-  select coalesce((select is_configured from company_settings limit 1), false);
-$$;
-
--- 4. Row Level Security
-alter table company_settings enable row level security;
-alter table policy_configurations enable row level security;
-
-create policy company_settings_read on company_settings for select using (true);
-create policy company_settings_write on company_settings for all
-  using (has_permission('settings.manage')) with check (has_permission('settings.manage'));
-
-create policy policy_config_read on policy_configurations for select using (true);
-create policy policy_config_write on policy_configurations for all
-  using (has_permission('settings.manage')) with check (has_permission('settings.manage'));
-
--- Seed single container row in company_settings
-insert into company_settings (company_name, timezone, currency, currency_symbol, rounding_mode, is_configured)
-select 'My Organization', 'Asia/Kolkata', 'INR', '₹', 'half_up', false
-where not exists (select 1 from company_settings);
-
--- Seed default policy configurations (§4.1 leave defaults)
-insert into policy_configurations (category, key, value, description) values
-  ('leave', 'default_cl_quota', '{"days": 12}'::jsonb, 'Default annual Casual Leave quota'),
-  ('leave', 'default_sl_quota', '{"days": 12}'::jsonb, 'Default annual Sick Leave quota'),
-  ('leave', 'default_el_quota', '{"days": 15}'::jsonb, 'Default annual Earned Leave quota')
-on conflict (key) do nothing;
-
-
--- END FILE: 03_settings.sql
-
--- BEGIN FILE: 04_work_calendar.sql
--- ============================================================================
--- HRMS v2.7 — Module 04: Work Calendar & Holiday Management
--- Database Target: PostgreSQL / Supabase
--- Target File: schema/04_work_calendar.sql
--- Strictly aligned with FR §3.5, §7, §9 & ADR 0003
--- ============================================================================
---
--- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
---               02_org.sql (employees table, separation_records for LWD lookup)
--- DEPENDENTS: 05_attendance.sql (is_working_day used in attendance triggers),
---             06_leave.sql (is_working_day used in leave sandwich calc)
--- Provides: work_calendar_templates, holidays, employee_work_calendar_assignment,
---           employee_optional_holiday_selections tables,
---           is_working_day() function========
-
--- 1. Calendar Templates (e.g. 5-Day Week, 6-Day Week, Alternate Saturday)
-create table work_calendar_templates (
-  id                          uuid primary key default gen_random_uuid(),
-  code                        text not null unique,
-  name                        text not null,
-  description                 text,
-  standard_working_days       integer[] not null default '{1,2,3,4,5}', -- 1=Mon .. 7=Sun
-  alt_saturday_rule           text default 'none', -- 'none' | '2nd_4th_off' | '1st_3rd_off'
-  total_optional_holidays_allowed integer default 2,
-  optional_selection_deadline_date date,
-  is_default                  boolean not null default false,
-  created_at                  timestamptz not null default now(),
-  updated_at                  timestamptz not null default now()
-);
-
--- 2. Holidays Master
-create table holidays (
-  id                    uuid primary key default gen_random_uuid(),
-  calendar_template_id  uuid not null references work_calendar_templates(id) on delete cascade,
-  name                  text not null,
-  holiday_date          date not null,
-  is_optional           boolean not null default false,
-  description           text,
-  created_at            timestamptz not null default now(),
-  unique (calendar_template_id, holiday_date, name)
-);
-
--- 3. Effective-Dated Per-Employee Calendar Assignment
-create table employee_work_calendar_assignment (
-  id                    uuid primary key default gen_random_uuid(),
-  employee_id           uuid not null references employees(id) on delete cascade,
-  calendar_template_id  uuid not null references work_calendar_templates(id),
-  effective_from        date not null,
-  effective_to          date,
-  created_by            uuid references employees(id),
-  created_at            timestamptz not null default now(),
-  exclude using gist (
-    employee_id with =,
-    daterange(effective_from, coalesce(effective_to, 'infinity'::date), '[)') with &&
-  )
-);
-
--- 4. Employee Optional Holiday Selections (FR §9)
-create table employee_optional_holiday_selections (
-  id             uuid primary key default gen_random_uuid(),
-  employee_id    uuid not null references employees(id) on delete cascade,
-  holiday_id     uuid not null references holidays(id) on delete cascade,
-  selected_at    timestamptz not null default now(),
-  auto_assigned  boolean not null default false,
-  unique (employee_id, holiday_id)
-);
-
--- 5. Helper Function: Check if a date is a working day for an employee (§2.4, §3.5)
-create or replace function is_working_day(p_employee_id uuid, p_date date)
-returns boolean language plpgsql stable as $$
-declare
-  v_template_id uuid;
-  v_dow integer;
-  v_working_days integer[];
-  v_is_compulsory_holiday boolean;
-  v_is_selected_optional boolean;
-  v_doj date;
-  v_lwd date;
-begin
-  -- Check employee DOJ & LWD boundaries (§2.4)
-  select date_of_joining into v_doj from employees where id = p_employee_id;
-  if v_doj is null or p_date < v_doj then
-    return false;
-  end if;
-
-  select last_working_day into v_lwd
-  from separation_records
-  where employee_id = p_employee_id and status in ('active', 'completed')
-  order by created_at desc limit 1;
-
-  if v_lwd is not null and p_date > v_lwd then
-    return false;
-  end if;
-
-  -- Fetch current calendar template for employee
-  select calendar_template_id into v_template_id
-  from employee_work_calendar_assignment
-  where employee_id = p_employee_id
-    and effective_from <= p_date
-    and (effective_to is null or effective_to >= p_date)
-  limit 1;
-
-  if v_template_id is null then
-    select id into v_template_id from work_calendar_templates where is_default = true limit 1;
-  end if;
-
-  if v_template_id is null then
-    v_dow := extract(isodow from p_date);
-    return v_dow between 1 and 5;
-  end if;
-
-  -- Check compulsory holiday
-  select exists (
-    select 1 from holidays
-    where calendar_template_id = v_template_id
-      and holiday_date = p_date
-      and is_optional = false
-  ) into v_is_compulsory_holiday;
-
-  if v_is_compulsory_holiday then
-    return false;
-  end if;
-
-  -- Check selected optional holiday
-  select exists (
-    select 1 from employee_optional_holiday_selections s
-    join holidays h on h.id = s.holiday_id
-    where s.employee_id = p_employee_id
-      and h.holiday_date = p_date
-  ) into v_is_selected_optional;
-
-  if v_is_selected_optional then
-    return false;
-  end if;
-
-  -- Check standard working day of week (1=Mon..7=Sun)
-  v_dow := extract(isodow from p_date);
-  select standard_working_days into v_working_days
-  from work_calendar_templates where id = v_template_id;
-
-  return v_dow = any(v_working_days);
-end;
-$$;
-
--- 6. Row Level Security
-alter table work_calendar_templates enable row level security;
-alter table holidays enable row level security;
-alter table employee_work_calendar_assignment enable row level security;
-alter table employee_optional_holiday_selections enable row level security;
-
-create policy templates_read on work_calendar_templates for select using (true);
-create policy templates_write on work_calendar_templates for all
-  using (has_permission('settings.manage')) with check (has_permission('settings.manage'));
-
-create policy holidays_read on holidays for select using (true);
-create policy holidays_write on holidays for all
-  using (has_permission('settings.manage')) with check (has_permission('settings.manage'));
-
-create policy calendar_assignment_read on employee_work_calendar_assignment for select
-  using (employee_id = auth_employee_id() or has_permission('employee.view', employee_id));
-create policy calendar_assignment_write on employee_work_calendar_assignment for insert
-  with check (has_permission('settings.manage'));
-
-create policy optional_selections_read on employee_optional_holiday_selections for select
-  using (employee_id = auth_employee_id() or has_permission('employee.view', employee_id));
-create policy optional_selections_write on employee_optional_holiday_selections for insert
-  with check (employee_id = auth_employee_id() or has_permission('employee.edit', employee_id));
-
--- Seed baseline Default Calendar Template
-insert into work_calendar_templates (code, name, description, standard_working_days, is_default)
-values ('DEFAULT_5DAY', 'Standard 5-Day Work Week', 'Monday to Friday working, Saturday and Sunday off', '{1,2,3,4,5}', true)
-on conflict (code) do nothing;
-
-
--- END FILE: 04_work_calendar.sql
-
--- BEGIN FILE: 05_attendance.sql
+-- ======== BEGIN: 05_attendance.sql ========
 -- ============================================================================
 -- HRMS v2.7 — Module 05: Attendance Tracking & Punch Correction
 -- Database Target: PostgreSQL / Supabase
 -- Target File: schema/05_attendance.sql
 -- Strictly aligned with FR §3.1–§3.5 & ADR 0003
 -- ============================================================================
---
--- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
---               02_org.sql (employees table, is_current_manager_of for RLS),
---               04_work_calendar.sql (is_working_day — referenced by 06_leave.sql)
--- DEPENDENTS: 06_leave.sql (attendance_records referenced in comp_off_grants),
---             08_payroll_eligibility.sql (attendance_records for worked units),
---             09_payroll.sql (attendance_records for payroll lock validation),
---             13_ff_settlement.sql (attendance_records for stale FF invalidation),
---             19_reports.sql (v_monthly_attendance_summary view)
--- Provides: attendance_records, attendance_punches, attendance_corrections tables,
---           process_attendance_record_update() trigger========
 
 -- 1. Enums
 create type attendance_event_status as enum ('present', 'absent', 'half_day', 'extra_work', 'pending_review');
@@ -1113,34 +113,15 @@ create policy corrections_update on attendance_corrections for update
 
 -- 8. v_employee_on_leave is defined in 06_leave.sql after leave_requests exists
 
+-- ======== END: 05_attendance.sql ========
 
--- END FILE: 05_attendance.sql
-
--- BEGIN FILE: 06_leave.sql
+-- ======== BEGIN: 06_leave.sql ========
 -- ============================================================================
 -- HRMS v2.7 — Module 06: Leave Management Engine
 -- Database Target: PostgreSQL / Supabase
 -- Target File: schema/06_leave.sql
 -- Strictly aligned with FR §4.1–§4.9 & ADR 0003
 -- ============================================================================
---
--- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
---               02_org.sql (employees table for FK references),
---               04_work_calendar.sql (is_working_day for sandwich calc & working day check),
---               05_attendance.sql (attendance_records for comp_off linkage)
--- DEPENDENTS: 08_payroll_eligibility.sql (leave_requests/leave_types for paid leave units),
---             09_payroll.sql (leave_requests for pending leave validation),
---             12_leave_financial.sql (leave_types, leave_allocations, leave_ledger),
---             13_ff_settlement.sql (leave_ledger for stale FF invalidation),
---             17_scheduled_jobs.sql (leave_types, leave_allocations, comp_off_grants),
---             19_reports.sql (v_leave_utilization_summary view)
--- Provides: leave_types, leave_allocations, leave_requests,
---           leave_request_approvals, leave_ledger, permission_requests,
---           comp_off_grants tables, calculate_leave_days(),
---           prevent_overlapping_leave_requests() trigger,
---           process_leave_request_state_change() trigger,
---           recover_negative_leave_balances(), v_leave_requests_masked view,
---           v_employee_on_leave view========
 
 create type leave_request_status as enum ('pending', 'approved', 'rejected', 'cancelled', 'withdrawn');
 create type leave_duration_type as enum ('full_day', 'first_half', 'second_half'); -- FR §3.6a
@@ -1479,24 +460,15 @@ from leave_requests lr
 join leave_types lt on lt.id = lr.leave_type_id
 where lr.status = 'approved';
 
+-- ======== END: 06_leave.sql ========
 
--- END FILE: 06_leave.sql
-
--- BEGIN FILE: 07_salary.sql
+-- ======== BEGIN: 07_salary.sql ========
 -- ============================================================================
 -- HRMS v2.7 — Module 07: Salary Structure & Component Master
 -- Database Target: PostgreSQL / Supabase
 -- Target File: schema/07_salary.sql
 -- Effective-dated per-employee versioned salary structure per FR §5.1
 -- ============================================================================
---
--- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
---               02_org.sql (employees table for FK references)
--- DEPENDENTS: 09_payroll.sql (salary_components for payslip component breakdown),
---             15_audit.sql (employee_salary_structures for audit triggers),
---             19_reports.sql (salary data for payroll register view)
--- Provides: salary_components, employee_salary_structures,
---           employee_salary_structure_items tables========
 
 -- 1. Component Enums
 create type component_type as enum ('earning', 'deduction', 'reimbursement', 'statutory_deduction');
@@ -1571,10 +543,9 @@ insert into salary_components (code, name, component_type, calculation_type, is_
   ('TDS', 'Income Tax TDS', 'statutory_deduction', 'flat_amount', false, false, false)
 on conflict (code) do nothing;
 
+-- ======== END: 07_salary.sql ========
 
--- END FILE: 07_salary.sql
-
--- BEGIN FILE: 08_payroll_eligibility.sql
+-- ======== BEGIN: 08_payroll_eligibility.sql ========
 -- ============================================================================
 -- HRMS v2.7 — Module 08: Payroll Eligibility Engine
 -- Database Target: PostgreSQL / Supabase
@@ -1582,14 +553,6 @@ on conflict (code) do nothing;
 -- Strictly aligned with FR §2.1, §3.6, §5.3 & ADR 0003
 -- Effective-dated binary eligibility status (system_default vs hr_override)
 -- ============================================================================
---
--- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
---               02_org.sql (employees table for FK references),
---               05_attendance.sql (attendance_records for worked units calc),
---               06_leave.sql (leave_requests, leave_types for paid/LOP leave units)
--- DEPENDENTS: 09_payroll.sql (payroll_eligibility_snapshots for payroll run)
--- Provides: payroll_eligibility, payroll_eligibility_snapshots tables,
---           compute_payroll_eligibility() function========
 
 -- 1. Enums
 create type eligibility_source as enum ('system_default', 'hr_override');
@@ -1718,10 +681,9 @@ create policy eligibility_write on payroll_eligibility for all
 create policy snapshots_read on payroll_eligibility_snapshots for select
   using (employee_id = auth_employee_id() or has_permission('payroll.view'));
 
+-- ======== END: 08_payroll_eligibility.sql ========
 
--- END FILE: 08_payroll_eligibility.sql
-
--- BEGIN FILE: 09_payroll.sql
+-- ======== BEGIN: 09_payroll.sql ========
 -- ============================================================================
 -- HRMS v2.7 — Module 09: Payroll Core Engine
 -- Database Target: PostgreSQL / Supabase
@@ -1729,25 +691,6 @@ create policy snapshots_read on payroll_eligibility_snapshots for select
 -- Strictly aligned with FR §5.2, §5.3, §5.5–§5.9 & ADR 0003
 -- Supports FR Revision/Supersede flow & §5.7 Blocking Checks
 -- ============================================================================
---
--- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
---               02_org.sql (employees table for FK references),
---               05_attendance.sql (attendance_records for §5.7 lock validation),
---               06_leave.sql (leave_requests for §5.7 pending leave check),
---               07_salary.sql (salary_components for payslip component breakdown),
---               08_payroll_eligibility.sql (payroll_eligibility_snapshots),
---               10_statutory.sql (statutory_profiles for §5.7 missing profile check)
---               Note: 10_statutory.sql also depends on payslips — applied after this file.
--- DEPENDENTS: 10_statutory.sql (statutory_calculation_snapshots FK → payslips),
---             11_reimbursements.sql (payroll_periods FK in claims),
---             12_leave_financial.sql (payroll_periods FK in encashment),
---             15_audit.sql (payroll_revisions for audit triggers),
---             18_search.sql (payroll_periods for global search),
---             19_reports.sql (v_payroll_register_summary view)
--- Provides: payroll_periods, payroll_revisions, payslips,
---           payslip_components, payroll_payment_items,
---           payroll_adjustments tables, validate_payroll_lock(),
---           reopen_payroll_period() functions========
 
 -- 1. Enums
 create type payroll_period_status as enum ('draft', 'processing', 'validated', 'finalized', 'published');
@@ -1939,10 +882,9 @@ create policy adjustments_read on payroll_adjustments for select using (has_perm
 create policy adjustments_write on payroll_adjustments for all
   using (has_permission('payroll.run')) with check (has_permission('payroll.run'));
 
+-- ======== END: 09_payroll.sql ========
 
--- END FILE: 09_payroll.sql
-
--- BEGIN FILE: 10_statutory.sql
+-- ======== BEGIN: 10_statutory.sql ========
 -- ============================================================================
 -- HRMS v2.7 — Module 10: Statutory Payroll Engine
 -- Database Target: PostgreSQL / Supabase
@@ -1950,13 +892,6 @@ create policy adjustments_write on payroll_adjustments for all
 -- Strictly aligned with FR §5.10 & ADR 0003
 -- Versioned statutory rule definitions & reproducible revision snapshots
 -- ============================================================================
---
--- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
---               02_org.sql (employees table for FK references),
---               09_payroll.sql (payslips table for statutory_calculation_snapshots FK)
--- DEPENDENTS: None (leaf module — no downstream FK dependencies)
--- Provides: statutory_rule_versions, statutory_profiles,
---           statutory_calculation_snapshots tables========
 
 -- 1. Enums
 create type tax_regime as enum ('new_regime', 'old_regime');
@@ -2045,10 +980,9 @@ values (
   '{"pt_slabs": {"Karnataka": [{"max": 24999, "tax": 0}, {"min": 25000, "tax": 200}]}}'::jsonb
 ) on conflict do nothing;
 
+-- ======== END: 10_statutory.sql ========
 
--- END FILE: 10_statutory.sql
-
--- BEGIN FILE: 11_reimbursements.sql
+-- ======== BEGIN: 11_reimbursements.sql ========
 -- ============================================================================
 -- HRMS v2.7 — Module 11: Expense Reimbursement Engine
 -- Database Target: PostgreSQL / Supabase
@@ -2056,15 +990,6 @@ values (
 -- Strictly aligned with FR §5.11 & ADR 0003
 -- Supports category taxable boolean, split amounts, and approval routes.
 -- ============================================================================
---
--- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
---               02_org.sql (employees table, is_current_manager_of for RLS),
---               09_payroll.sql (payroll_periods for FK reference in claims)
--- DEPENDENTS: 19_reports.sql (v_pending_approvals_dashboard includes reimbursement_claims)
--- Provides: reimbursement_categories, reimbursement_claims,
---           reimbursement_receipts tables,
---           check_reimbursement_duplicate() trigger,
---           check_reimbursement_approval_flow() trigger========
 
 -- 1. Enums
 create type duplicate_policy_mode as enum ('block', 'warn_and_allow', 'allow_always');
@@ -2197,23 +1122,15 @@ create policy receipts_read on reimbursement_receipts for select
 create policy receipts_insert on reimbursement_receipts for insert
   with check (exists (select 1 from reimbursement_claims c where c.id = claim_id and c.employee_id = auth_employee_id()));
 
+-- ======== END: 11_reimbursements.sql ========
 
--- END FILE: 11_reimbursements.sql
-
--- BEGIN FILE: 12_leave_financial.sql
+-- ======== BEGIN: 12_leave_financial.sql ========
 -- ============================================================================
 -- HRMS v2.7 — Module 12: Leave Encashment & Carry-Forward Operations
 -- Database Target: PostgreSQL / Supabase
 -- Target File: schema/12_leave_financial.sql
 -- Strictly aligned with FR §4.10, §4.11 & ADR 0003
 -- ============================================================================
---
--- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
---               02_org.sql (employees table for FK references),
---               06_leave.sql (leave_types for FK, leave_allocations, leave_ledger),
---               09_payroll.sql (payroll_periods for FK reference in encashment)
--- DEPENDENTS: 19_reports.sql (v_pending_approvals_dashboard includes encashment requests)
--- Provides: leave_encashment_requests, leave_carry_forward_logs tables========
 
 -- 1. Enums
 create type encashment_status as enum ('pending', 'approved', 'rejected', 'processed');
@@ -2263,25 +1180,15 @@ create policy encashment_update on leave_encashment_requests for update
 create policy carry_forward_read on leave_carry_forward_logs for select
   using (employee_id = auth_employee_id() or has_permission('leave.view', employee_id));
 
+-- ======== END: 12_leave_financial.sql ========
 
--- END FILE: 12_leave_financial.sql
-
--- BEGIN FILE: 13_ff_settlement.sql
+-- ======== BEGIN: 13_ff_settlement.sql ========
 -- ============================================================================
 -- HRMS v2.7 — Module 13: Full & Final (F&F) Settlement
 -- Database Target: PostgreSQL / Supabase
 -- Target File: schema/13_ff_settlement.sql
 -- Strictly aligned with FR §5.4 & ADR 0003
 -- ============================================================================
---
--- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
---               02_org.sql (employees table, separation_records for FK),
---               05_attendance.sql (attendance_records for stale FF invalidation trigger),
---               06_leave.sql (leave_ledger for stale FF invalidation trigger)
--- DEPENDENTS: 19_reports.sql (v_pending_approvals_dashboard includes FF settlements)
--- Provides: ff_settlement_records, ff_clearances tables,
---           invalidate_stale_ff_settlement() trigger (fires on leave_ledger
---           and attendance_records changes)========
 
 create type ff_status as enum ('draft', 'pending_approval', 'approved', 'paid', 'reopened', 'cancelled', 'withdrawn');
 
@@ -2353,22 +1260,15 @@ create policy clearance_read on ff_clearances for select
 create policy clearance_write on ff_clearances for all
   using (has_permission('offboarding.manage')) with check (has_permission('offboarding.manage'));
 
+-- ======== END: 13_ff_settlement.sql ========
 
--- END FILE: 13_ff_settlement.sql
-
--- BEGIN FILE: 14_attachments.sql
+-- ======== BEGIN: 14_attachments.sql ========
 -- ============================================================================
 -- HRMS v2.7 — Module 14: Document Attachments & Malware Scanning
 -- Database Target: PostgreSQL / Supabase
 -- Target File: schema/14_attachments.sql
 -- Strictly aligned with FR §6 & ADR 0003
 -- ============================================================================
---
--- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
---               02_org.sql (employees table for uploaded_by FK)
--- DEPENDENTS: None (leaf module — no downstream FK dependencies)
--- Provides: document_attachments table,
---           validate_attachment_security() trigger========
 
 -- 1. Scan Status Enum
 create type scan_status_enum as enum ('pending', 'clean', 'flagged');
@@ -2421,24 +1321,15 @@ create policy attachments_insert on document_attachments for insert
 create policy attachments_delete on document_attachments for delete
   using (uploaded_by = auth_employee_id() or has_permission('settings.manage'));
 
+-- ======== END: 14_attachments.sql ========
 
--- END FILE: 14_attachments.sql
-
--- BEGIN FILE: 15_audit.sql
+-- ======== BEGIN: 15_audit.sql ========
 -- ============================================================================
 -- HRMS v2.7 — Module 15: Centralized Immutable Audit Trail
 -- Database Target: PostgreSQL / Supabase
 -- Target File: schema/15_audit.sql
 -- Strictly aligned with FR §8.1
 -- ============================================================================
---
--- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS & trigger),
---               02_org.sql (employees table — audit trigger),
---               07_salary.sql (employee_salary_structures — audit trigger),
---               09_payroll.sql (payroll_revisions — audit trigger)
--- DEPENDENTS: None (leaf module — triggers fire on existing tables)
--- Provides: audit_logs table, log_entity_audit() generic trigger function,
---           trg_audit_employees, trg_audit_salary, trg_audit_payroll_revisions triggers========
 
 -- 1. Immutable Audit Trail Table (§8.1)
 create table audit_logs (
@@ -2501,21 +1392,15 @@ alter table audit_logs enable row level security;
 create policy audit_logs_read on audit_logs for select
   using (has_permission('audit.view'));
 
+-- ======== END: 15_audit.sql ========
 
--- END FILE: 15_audit.sql
-
--- BEGIN FILE: 16_notifications.sql
+-- ======== BEGIN: 16_notifications.sql ========
 -- ============================================================================
 -- HRMS v2.7 — Module 16: Event-Driven Notifications Engine
 -- Database Target: PostgreSQL / Supabase
 -- Target File: schema/16_notifications.sql
 -- Strictly aligned with FR §8.2
 -- ============================================================================
---
--- DEPENDENCIES: 01_rbac.sql (auth_employee_id for RLS),
---               02_org.sql (employees table for recipient_id FK)
--- DEPENDENTS: None (leaf module — no downstream FK dependencies)
--- Provides: inbox_notifications table, create_notification() function========
 
 -- 1. Enums
 create type notification_channel as enum ('in_app', 'email');
@@ -2557,30 +1442,18 @@ alter table inbox_notifications enable row level security;
 
 create policy notifications_read on inbox_notifications for select
   using (recipient_id = auth_employee_id());
-create policy notifications_insert on inbox_notifications for insert
-  with check (recipient_id = auth_employee_id() or has_permission('settings.manage'));
 create policy notifications_update on inbox_notifications for update
   using (recipient_id = auth_employee_id());
 
+-- ======== END: 16_notifications.sql ========
 
--- END FILE: 16_notifications.sql
-
--- BEGIN FILE: 17_scheduled_jobs.sql
+-- ======== BEGIN: 17_scheduled_jobs.sql ========
 -- ============================================================================
 -- HRMS v2.7 — Module 17: Scheduled & Automated Background Jobs
 -- Database Target: PostgreSQL / Supabase
 -- Target File: schema/17_scheduled_jobs.sql
 -- Strictly aligned with FR §5.12 & ADR 0003
 -- ============================================================================
---
--- DEPENDENCIES: 01_rbac.sql (has_permission for RLS),
---               02_org.sql (employees table for EL accrual),
---               06_leave.sql (leave_types, leave_allocations for EL accrual,
---                            comp_off_grants, leave_ledger for expiry job)
--- DEPENDENTS: None (leaf module — job functions reference existing tables)
--- Provides: scheduled_job_logs table,
---           job_accrue_monthly_earned_leave(),
---           job_expire_comp_off_grants() functions========
 
 -- 1. Job Execution Audit Log
 create type job_status as enum ('running', 'success', 'failed');
@@ -2674,23 +1547,15 @@ alter table scheduled_job_logs enable row level security;
 create policy job_logs_read on scheduled_job_logs for select
   using (has_permission('job.view'));
 
+-- ======== END: 17_scheduled_jobs.sql ========
 
--- END FILE: 17_scheduled_jobs.sql
-
--- BEGIN FILE: 18_search.sql
+-- ======== BEGIN: 18_search.sql ========
 -- ============================================================================
 -- HRMS v2.7 — Module 18: Global Search & Cursor Pagination
 -- Database Target: PostgreSQL / Supabase
 -- Target File: schema/18_search.sql
 -- Strictly aligned with FR §5.13
 -- ============================================================================
---
--- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id in search_global),
---               02_org.sql (employees, departments tables),
---               09_payroll.sql (payroll_periods for search)
--- DEPENDENTS: None (leaf module — search RPC reads from existing tables)
--- Provides: search_global() RPC function,
---           pg_trgm extension, trigram GIN indexes on employees/departments========
 
 -- Global Search RPC Function (§5.13)
 create or replace function search_global(p_query text)
@@ -2758,29 +1623,15 @@ create index if not exists idx_employees_code_trgm on employees using gin (emplo
 create index if not exists idx_employees_email_trgm on employees using gin (email gin_trgm_ops);
 create index if not exists idx_departments_name_trgm on departments using gin (name gin_trgm_ops);
 
+-- ======== END: 18_search.sql ========
 
--- END FILE: 18_search.sql
-
--- BEGIN FILE: 19_reports.sql
+-- ======== BEGIN: 19_reports.sql ========
 -- ============================================================================
 -- HRMS v2.7 — Module 19: Reports, Dashboards & Aggregated Views
 -- Database Target: PostgreSQL / Supabase
 -- Target File: schema/19_reports.sql
 -- Strictly aligned with FR §10
 -- ============================================================================
---
--- DEPENDENCIES: 02_org.sql (employees table),
---               05_attendance.sql (attendance_records),
---               06_leave.sql (leave_allocations, leave_types, leave_requests,
---                            permission_requests, comp_off_grants),
---               07_salary.sql (payslips via payroll_revisions),
---               09_payroll.sql (payroll_revisions, payslips),
---               11_reimbursements.sql (reimbursement_claims, reimbursement_categories),
---               12_leave_financial.sql (leave_encashment_requests),
---               13_ff_settlement.sql (ff_settlement_records)
--- DEPENDENTS: None (leaf module — views only, no downstream FK dependencies)
--- Provides: v_monthly_attendance_summary, v_leave_utilization_summary,
---           v_payroll_register_summary, v_pending_approvals_dashboard views========
 
 -- 1. Monthly Attendance Summary View
 create view v_monthly_attendance_summary as
@@ -2935,25 +1786,14 @@ from comp_off_grants cog
 join employees e on e.id = cog.employee_id
 where cog.status = 'pending';
 
+-- ======== END: 19_reports.sql ========
 
--- END FILE: 19_reports.sql
-
--- BEGIN FILE: 20_performance_optimizations.sql
+-- ======== BEGIN: 20_performance_optimizations.sql ========
 -- ============================================================================
 -- HRMS v2.7 — Module 20: Performance Optimizations & Aggregation Functions
 -- Database Target: PostgreSQL / Supabase
 -- Target File: schema/20_performance_optimizations.sql
 -- ============================================================================
---
--- DEPENDENCIES: 02_org.sql (employees table for headcount aggregation),
---               05_attendance.sql (attendance_records for date indexes),
---               09_payroll.sql (payslips, payroll_revisions for FK indexes),
---               11_reimbursements.sql (reimbursement_claims for FK index)
--- DEPENDENTS: None (leaf module — indexes and functions only)
--- Provides: get_dashboard_headcount() RPC,
---           performance indexes on employees, attendance_records,
---           payslips, reimbursement_claims, employee_roles,
---           payroll_revisions========
 
 -- 1. Optimized Headcount Aggregation RPC Function
 -- Collapses two separate exact count queries (active and activated_this_month)
@@ -3001,21 +1841,12 @@ create index if not exists idx_employee_roles_employee_id
 create index if not exists idx_payroll_revisions_period_status
   on payroll_revisions (payroll_period_id, status);
 
+-- ======== END: 20_performance_optimizations.sql ========
 
--- END FILE: 20_performance_optimizations.sql
-
--- BEGIN FILE: 21_rbac_scope_fallback.sql
--- ============================================================================
+-- ======== BEGIN: 21_rbac_scope_fallback.sql ========
 -- Migration: 21_rbac_scope_fallback.sql
 -- Description: Adds scope hierarchy fallback (.all > .team > .self) and system_admin bypass to has_any_permission RPC
 -- Security: Uses SECURITY DEFINER with fixed search_path = public to safely inspect RBAC mappings without recursive RLS checks
--- ============================================================================
---
--- DEPENDENCIES: 01_rbac.sql (has_any_permission function to replace,
---               auth_employee_id, employee_roles, roles, role_permissions, permissions tables)
--- DEPENDENTS: None (replaces existing function — no new downstream dependencies)
--- Provides: Enhanced has_any_permission() with scope hierarchy fallback and
---           system_admin bypass (replaces version from 01_rbac.sql)
 
 CREATE OR REPLACE FUNCTION has_any_permission(perm_codes text[])
 RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER
@@ -3073,26 +1904,14 @@ BEGIN
 END;
 $$;
 
+-- ======== END: 21_rbac_scope_fallback.sql ========
 
--- END FILE: 21_rbac_scope_fallback.sql
-
--- BEGIN FILE: 22_comprehensive_performance_indexes.sql
+-- ======== BEGIN: 22_comprehensive_performance_indexes.sql ========
 -- ============================================================================
 -- HRMS v2.7 — Module 22: Comprehensive Database Performance Indexes
 -- Database Target: PostgreSQL / Supabase
 -- Target File: schema/22_comprehensive_performance_indexes.sql
 -- ============================================================================
---
--- DEPENDENCIES: ALL preceding modules (00–21). Creates indexes on tables
---               from: 02_org.sql, 04_work_calendar.sql, 05_attendance.sql,
---               06_leave.sql, 07_salary.sql, 08_payroll_eligibility.sql,
---               09_payroll.sql, 10_statutory.sql, 11_reimbursements.sql,
---               12_leave_financial.sql, 13_ff_settlement.sql,
---               14_attachments.sql, 15_audit.sql
--- DEPENDENTS: None (leaf module — indexes only, no new objects)
--- Provides: 40+ performance indexes covering org relationships, calendar,
---           attendance, leave/approvals, salary/payroll, reimbursements,
---           encashment/offboarding, attachments, and audit logs========
 
 -- 1. Org & Employee Relationships
 create index if not exists idx_employee_manager_assignment_manager
@@ -3212,10 +2031,9 @@ create index if not exists idx_audit_logs_actor
 create index if not exists idx_audit_logs_correlation
   on audit_logs (correlation_id);
 
+-- ======== END: 22_comprehensive_performance_indexes.sql ========
 
--- END FILE: 22_comprehensive_performance_indexes.sql
-
--- BEGIN FILE: bootstrap/01_system_admin.sql
+-- ======== BEGIN: bootstrap\01_system_admin.sql ========
 -- ============================================================================
 -- HRMS v2.7 — System Bootstrap: Initial System Admin Break-Glass Script
 -- Database Target: PostgreSQL / Supabase
@@ -3247,6 +2065,5 @@ from employees e, roles r
 where e.employee_code = 'ADM-001' and r.code = 'system_admin'
 on conflict (employee_id, role_id) do nothing;
 
-
--- END FILE: bootstrap/01_system_admin.sql
+-- ======== END: bootstrap\01_system_admin.sql ========
 

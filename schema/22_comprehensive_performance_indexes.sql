@@ -3,10 +3,21 @@
 -- Database Target: PostgreSQL / Supabase
 -- Target File: schema/22_comprehensive_performance_indexes.sql
 -- ============================================================================
+--
+-- DEPENDENCIES: ALL preceding modules (00–21). Creates indexes on tables
+--               from: 02_org.sql, 04_work_calendar.sql, 05_attendance.sql,
+--               06_leave.sql, 07_salary.sql, 08_payroll_eligibility.sql,
+--               09_payroll.sql, 10_statutory.sql, 11_reimbursements.sql,
+--               12_leave_financial.sql, 13_ff_settlement.sql,
+--               14_attachments.sql, 15_audit.sql
+-- DEPENDENTS: None (leaf module — indexes only, no new objects)
+-- Provides: 40+ performance indexes covering org relationships, calendar,
+--           attendance, leave/approvals, salary/payroll, reimbursements,
+--           encashment/offboarding, attachments, and audit logs========
 
 -- 1. Org & Employee Relationships
-create index if not exists idx_employees_manager_id
-  on employees (manager_id);
+create index if not exists idx_employee_manager_assignment_manager
+  on employee_manager_assignment (manager_id);
 
 create index if not exists idx_employee_dept_assign_lookup
   on employee_department_assignment (department_id, effective_to);
@@ -76,7 +87,7 @@ create index if not exists idx_salary_structures_emp_dates
   on employee_salary_structures (employee_id, effective_from, effective_to);
 
 create index if not exists idx_salary_structure_items_struct_id
-  on employee_salary_structure_items (salary_structure_id);
+  on employee_salary_structure_items (employee_salary_structure_id);
 
 create index if not exists idx_payroll_eligibility_emp_dates
   on payroll_eligibility (employee_id, effective_from);

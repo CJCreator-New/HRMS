@@ -3,6 +3,11 @@
 -- Database Target: PostgreSQL / Supabase
 -- Target File: schema/00_setup.sql
 -- ============================================================================
+--
+-- DEPENDENCIES: None (foundation file)
+-- DEPENDENTS: 02_org.sql (set_updated_at), all subsequent modules
+-- Provides: pgcrypto extension, btree_gist extension, set_updated_at(),
+--           register_idempotency_key(), system_idempotency_keys table========
 
 -- 1. Required PostgreSQL Extensions
 create extension if not exists "pgcrypto";

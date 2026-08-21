@@ -5,6 +5,15 @@
 -- Strictly aligned with FR §5.11 & ADR 0003
 -- Supports category taxable boolean, split amounts, and approval routes.
 -- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id for RLS),
+--               02_org.sql (employees table, is_current_manager_of for RLS),
+--               09_payroll.sql (payroll_periods for FK reference in claims)
+-- DEPENDENTS: 19_reports.sql (v_pending_approvals_dashboard includes reimbursement_claims)
+-- Provides: reimbursement_categories, reimbursement_claims,
+--           reimbursement_receipts tables,
+--           check_reimbursement_duplicate() trigger,
+--           check_reimbursement_approval_flow() trigger========
 
 -- 1. Enums
 create type duplicate_policy_mode as enum ('block', 'warn_and_allow', 'allow_always');

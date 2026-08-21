@@ -4,6 +4,13 @@
 -- Target File: schema/18_search.sql
 -- Strictly aligned with FR §5.13
 -- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id in search_global),
+--               02_org.sql (employees, departments tables),
+--               09_payroll.sql (payroll_periods for search)
+-- DEPENDENTS: None (leaf module — search RPC reads from existing tables)
+-- Provides: search_global() RPC function,
+--           pg_trgm extension, trigram GIN indexes on employees/departments========
 
 -- Global Search RPC Function (§5.13)
 create or replace function search_global(p_query text)

@@ -4,6 +4,15 @@
 -- Target File: schema/17_scheduled_jobs.sql
 -- Strictly aligned with FR §5.12 & ADR 0003
 -- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (has_permission for RLS),
+--               02_org.sql (employees table for EL accrual),
+--               06_leave.sql (leave_types, leave_allocations for EL accrual,
+--                            comp_off_grants, leave_ledger for expiry job)
+-- DEPENDENTS: None (leaf module — job functions reference existing tables)
+-- Provides: scheduled_job_logs table,
+--           job_accrue_monthly_earned_leave(),
+--           job_expire_comp_off_grants() functions========
 
 -- 1. Job Execution Audit Log
 create type job_status as enum ('running', 'success', 'failed');

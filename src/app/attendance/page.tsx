@@ -1,4 +1,5 @@
 import { Clock } from "lucide-react";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { safeGetCurrentUserRoles } from "@/lib/auth/current-user";
 import { permissionsForRoles, hasPermission } from "@/lib/auth/permissions-map";
 import { getAttendanceDashboard, type AttendanceDashboardData } from "@/lib/services/attendance";
@@ -50,27 +51,23 @@ export default async function AttendancePage() {
     <div className="space-y-6">
       <ReadOnlyBanner moduleName="Attendance & Anomaly Records" />
 
-      {/* Top Action Bar + Today strip — the punch flow in one place */}
-      <div className="bg-surface p-5 rounded-xl border border-line shadow-card space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-bold text-ink tracking-tight flex items-center gap-2">
-              <Clock className="w-6 h-6 text-primary-600" aria-hidden="true" />
-              Attendance &amp; Time Tracking
-            </h1>
-            <p className="text-xs text-ink-secondary mt-1">
-              Punch check-in/out, view daily logs, and submit correction requests for manager review.
-            </p>
-          </div>
-
+      {/* PageHeader (WS-B shared component) */}
+      <PageHeader
+        icon={<Clock className="w-5 h-5 text-primary-600" aria-hidden="true" />}
+        title="Attendance & Time Tracking"
+        description="Punch check-in/out, view daily logs, and submit correction requests for manager review."
+        actions={
           <AttendancePunchBar
             employeeId={data.employeeId}
             activeRecordId={today.activeRecordId}
             isCheckedIn={today.isCheckedIn}
           />
-        </div>
+        }
+      />
 
-        {/* Today strip — current punch state at a glance */}
+      {/* Today strip + punch flow — current punch state at a glance */}
+      <div className="bg-surface rounded-xl border border-line shadow-card space-y-4">
+        {/* Today strip */}
         <div
           data-testid="today-strip"
           className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 ${

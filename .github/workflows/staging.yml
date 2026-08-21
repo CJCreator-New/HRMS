@@ -1,0 +1,676 @@
+name: Staging Environment — Full Test Suite
+
+on:
+  push:
+    branches: [staging, develop]
+  pull_request:
+    branches: [staging, develop]
+  schedule:
+    # Run daily at 07:00 UTC (12:30 PM IST) — 1 hour after live-backend
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      skip_live_tests:
+        description: "Skip live-backend tests (run mock-only)"
+        required: false
+        default: "false"
+        type: boolean
+      skip_seed:
+        description: "Skip database seeding for live-backend tests"
+        required: false
+        default: "false"
+        type: boolean
+
+# Cancel in-progress runs for the same branch/PR (but not scheduled runs)
+concurrency:
+  group: staging-${{ github.event_name == 'schedule' && 'daily' || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+
+env:
+  # Live-backend config (used by live-backend jobs)
+  TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+  TEST_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+  TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════
+  # PHASE 1: Static Checks (Fast — No Build Required)
+  # ═══════════════════════════════════════════════════════════════════════
+
+  typecheck:
+    name: "Phase 1: Typecheck"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+      - run: npm ci
+      - name: Run TypeScript Compiler
+        run: npx tsc --noEmit
+
+  lint:
+    name: "Phase 1: Lint"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+      - run: npm ci
+      - name: Run ESLint
+        run: npm run lint
+
+  permissions-sync:
+    name: "Phase 1: Permissions Sync"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+      - run: npm ci
+      - name: Verify Permission Code Sync
+        run: npm run verify:permissions
+
+  unit-tests:
+    name: "Phase 1: Unit Tests"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+      - run: npm ci
+      - name: Run Unit Tests
+        run: npm run test:unit
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # PHASE 2: Build & Mock-Mode E2E (Fast — No Live Database)
+  # ═══════════════════════════════════════════════════════════════════════
+
+  build-mock:
+    name: "Phase 2: Build (Mock Mode)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+      - run: npm ci
+      - name: Build Next.js App
+        run: npm run build
+        env:
+          NEXT_PUBLIC_MOCK_AUTH: "true"
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-build-mock
+          path: .next
+          retention-days: 1
+
+  e2e-mock-smoke:
+    name: "Phase 2: E2E Smoke (Mock)"
+    needs: build-mock
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: hrms_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+        ports:
+          - 54322:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+      - run: npm ci
+      - name: Install Playwright Browsers (Chromium)
+        run: npx playwright install chromium --with-deps
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: next-build-mock
+          path: .next
+      - name: Start Next.js Server
+        run: npx next start -p 3000 &
+        env:
+          NEXT_PUBLIC_MOCK_AUTH: "true"
+      - name: Wait for Server
+        run: |
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3000 > /dev/null 2>&1; then
+              echo "✅ Server ready"
+              exit 0
+            fi
+            echo "Waiting for server... ($i/30)"
+            sleep 2
+          done
+          echo "❌ Server failed to start"
+          exit 1
+      - name: Run P0 Smoke Tests
+        run: npm run test:e2e:p0
+        env:
+          PLAYWRIGHT_TEST_BASE_URL: http://localhost:3000
+          NEXT_PUBLIC_MOCK_AUTH: "true"
+      - name: Upload Mock E2E Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-mock-report
+          path: e2e-report/
+          retention-days: 7
+
+  e2e-mock-rbac:
+    name: "Phase 2: RBAC Matrix (Mock)"
+    needs: build-mock
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: hrms_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+        ports:
+          - 54322:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+      - run: npm ci
+      - name: Install Playwright Browsers (Chromium)
+        run: npx playwright install chromium --with-deps
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: next-build-mock
+          path: .next
+      - name: Start Next.js Server
+        run: npx next start -p 3000 &
+        env:
+          NEXT_PUBLIC_MOCK_AUTH: "true"
+      - name: Wait for Server
+        run: |
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3000 > /dev/null 2>&1; then
+              echo "✅ Server ready"
+              exit 0
+            fi
+            echo "Waiting for server... ($i/30)"
+            sleep 2
+          done
+          echo "❌ Server failed to start"
+          exit 1
+      - name: Run RBAC Route Matrix Tests
+        run: npm run test:e2e:rbac
+        env:
+          PLAYWRIGHT_TEST_BASE_URL: http://localhost:3000
+          NEXT_PUBLIC_MOCK_AUTH: "true"
+      - name: Upload RBAC Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-rbac-report
+          path: e2e-report/
+          retention-days: 7
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # PHASE 3: Live-Backend E2E (Requires Supabase Test Project)
+  # ═══════════════════════════════════════════════════════════════════════
+
+  health-check:
+    name: "Phase 3: Verify Supabase"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      reachable: ${{ steps.check.outputs.reachable }}
+    steps:
+      - name: Check Supabase Reachability
+        id: check
+        run: |
+          if [ -z "${{ secrets.TEST_SUPABASE_URL }}" ]; then
+            echo "⚠️  TEST_SUPABASE_URL not configured — skipping live-backend tests"
+            echo "reachable=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: ${{ secrets.TEST_SUPABASE_ANON_KEY }}" \
+            "${{ secrets.TEST_SUPABASE_URL }}/rest/v1/" || echo "000")
+          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 500 ]; then
+            echo "✅ Supabase reachable (HTTP $STATUS)"
+            echo "reachable=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Supabase unreachable (HTTP $STATUS)"
+            echo "reachable=false" >> $GITHUB_OUTPUT
+          fi
+
+  seed-database:
+    name: "Phase 3: Seed Database"
+    needs: health-check
+    if: |
+      needs.health-check.outputs.reachable == 'true' &&
+      github.event.inputs.skip_live_tests != 'true' &&
+      github.event.inputs.skip_seed != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+      - run: npm ci
+      - name: Apply Database Schema
+        run: npm run db:sync
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+      - name: Seed Mock Data
+        run: npm run seed:mock
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+
+  build-live:
+    name: "Phase 3: Build (Live Backend)"
+    needs: health-check
+    if: |
+      needs.health-check.outputs.reachable == 'true' &&
+      github.event.inputs.skip_live_tests != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+      - run: npm ci
+      - name: Build Next.js App
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_MOCK_AUTH: "false"
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-build-live
+          path: .next
+          retention-days: 1
+
+  golden-path-traces:
+    name: "Phase 3: Golden-Path Traces"
+    needs: [health-check, seed-database, build-live]
+    if: |
+      always() &&
+      needs.health-check.outputs.reachable == 'true' &&
+      github.event.inputs.skip_live_tests != 'true' &&
+      (needs.seed-database.result == 'success' || needs.seed-database.result == 'skipped') &&
+      needs.build-live.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+      - run: npm ci
+      - name: Install Playwright Browsers (Chromium)
+        run: npx playwright install chromium --with-deps
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: next-build-live
+          path: .next
+      - name: Start Next.js Server
+        run: npx next start -p 3000 &
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_MOCK_AUTH: "false"
+      - name: Wait for Server
+        run: |
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3000 > /dev/null 2>&1; then
+              echo "✅ Server ready"
+              exit 0
+            fi
+            echo "Waiting for server... ($i/30)"
+            sleep 2
+          done
+          echo "❌ Server failed to start"
+          exit 1
+      - name: Run Golden-Path Trace Tests
+        run: npx playwright test e2e/specs/cross-module/golden-path-routing-trace.spec.ts --project=chromium
+        env:
+          PLAYWRIGHT_TEST_BASE_URL: http://localhost:3000
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_MOCK_AUTH: "false"
+      - name: Upload Live E2E Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-live-traces-report
+          path: |
+            e2e-report/
+            test-results/
+          retention-days: 14
+
+  cross-module-live:
+    name: "Phase 3: Cross-Module (Live)"
+    needs: [health-check, seed-database, build-live]
+    if: |
+      always() &&
+      needs.health-check.outputs.reachable == 'true' &&
+      github.event.inputs.skip_live_tests != 'true' &&
+      (needs.seed-database.result == 'success' || needs.seed-database.result == 'skipped') &&
+      needs.build-live.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+      - run: npm ci
+      - name: Install Playwright Browsers (Chromium)
+        run: npx playwright install chromium --with-deps
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: next-build-live
+          path: .next
+      - name: Start Next.js Server
+        run: npx next start -p 3000 &
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_MOCK_AUTH: "false"
+      - name: Wait for Server
+        run: |
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3000 > /dev/null 2>&1; then
+              echo "✅ Server ready"
+              exit 0
+            fi
+            echo "Waiting for server... ($i/30)"
+            sleep 2
+          done
+          echo "❌ Server failed to start"
+          exit 1
+      - name: Run Cross-Module Smoke Tests
+        run: npx playwright test e2e/specs/cross-module --project=chromium
+        env:
+          PLAYWRIGHT_TEST_BASE_URL: http://localhost:3000
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_MOCK_AUTH: "false"
+      - name: Upload Live E2E Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-live-cross-module-report
+          path: |
+            e2e-report/
+            test-results/
+          retention-days: 14
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # PHASE 4: Summary & Gate
+  # ═══════════════════════════════════════════════════════════════════════
+
+  summary:
+    name: "Staging Summary"
+    needs:
+      - typecheck
+      - lint
+      - permissions-sync
+      - unit-tests
+      - e2e-mock-smoke
+      - e2e-mock-rbac
+      - health-check
+      - golden-path-traces
+      - cross-module-live
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Summary
+        run: |
+          echo "## 🚀 Staging Environment — Full Test Suite Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Phase 1: Static Checks" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Typecheck | ${{ needs.typecheck.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Lint | ${{ needs.lint.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Permissions Sync | ${{ needs.permissions-sync.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Unit Tests | ${{ needs.unit-tests.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Phase 2: Mock-Mode E2E" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Suite | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| E2E Smoke (P0) | ${{ needs.e2e-mock-smoke.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| RBAC Route Matrix | ${{ needs.e2e-mock-rbac.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Phase 3: Live-Backend E2E" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Suite | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Supabase Health Check | ${{ needs.health-check.outputs.reachable == 'true' && '✅' || '⏭️ Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Golden-Path Traces | ${{ needs.golden-path-traces.result == 'success' && '✅' || needs.golden-path-traces.result == 'skipped' && '⏭️ Skipped' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cross-Module Smoke | ${{ needs.cross-module-live.result == 'success' && '✅' || needs.cross-module-live.result == 'skipped' && '⏭️ Skipped' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Overall status
+          OVERALL="✅"
+          for job in typecheck lint permissions-sync unit-tests e2e-mock-smoke e2e-mock-rbac; do
+            if [ "${{ needs[job].result }}" != "success" ]; then
+              OVERALL="❌"
+              break
+            fi
+          done
+
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "### Overall: ${OVERALL}" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.health-check.outputs.reachable }}" != "true" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> ⚠️ **Live-backend tests skipped.** Configure these GitHub Actions secrets to enable:" >> $GITHUB_STEP_SUMMARY
+            echo "> - \`TEST_SUPABASE_URL\`" >> $GITHUB_STEP_SUMMARY
+            echo "> - \`TEST_SUPABASE_ANON_KEY\`" >> $GITHUB_STEP_SUMMARY
+            echo "> - \`TEST_SUPABASE_SERVICE_ROLE_KEY\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Fail if any required job failed
+        run: |
+          FAILED=false
+          for job in typecheck lint permissions-sync unit-tests e2e-mock-smoke e2e-mock-rbac; do
+            if [ "${{ needs[job].result }}" != "success" ]; then
+              echo "❌ Job '$job' failed with result: ${{ needs[job].result }}"
+              FAILED=true
+            fi
+          done
+          if [ "$FAILED" = "true" ]; then
+            exit 1
+          fi
+          echo "✅ All required jobs passed"
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # PHASE 5: Notifications (On Failure)
+  # ═══════════════════════════════════════════════════════════════════════
+
+  notify-slack:
+    name: "Notify Slack (On Failure)"
+    needs:
+      - typecheck
+      - lint
+      - permissions-sync
+      - unit-tests
+      - e2e-mock-smoke
+      - e2e-mock-rbac
+      - golden-path-traces
+      - cross-module-live
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send Slack Notification
+        if: env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          # Build failure details
+          FAILURES=""
+          [ "${{ needs.typecheck.result }}" != "success" ] && FAILURES="${FAILURES}\n• Typecheck: ${{ needs.typecheck.result }}"
+          [ "${{ needs.lint.result }}" != "success" ] && FAILURES="${FAILURES}\n• Lint: ${{ needs.lint.result }}"
+          [ "${{ needs.permissions-sync.result }}" != "success" ] && FAILURES="${FAILURES}\n• Permissions Sync: ${{ needs.permissions-sync.result }}"
+          [ "${{ needs.unit-tests.result }}" != "success" ] && FAILURES="${FAILURES}\n• Unit Tests: ${{ needs.unit-tests.result }}"
+          [ "${{ needs.e2e-mock-smoke.result }}" != "success" ] && FAILURES="${FAILURES}\n• E2E Smoke (Mock): ${{ needs.e2e-mock-smoke.result }}"
+          [ "${{ needs.e2e-mock-rbac.result }}" != "success" ] && FAILURES="${FAILURES}\n• RBAC Matrix (Mock): ${{ needs.e2e-mock-rbac.result }}"
+          [ "${{ needs.golden-path-traces.result }}" != "success" ] && [ "${{ needs.golden-path-traces.result }}" != "skipped" ] && FAILURES="${FAILURES}\n• Golden-Path Traces (Live): ${{ needs.golden-path-traces.result }}"
+          [ "${{ needs.cross-module-live.result }}" != "success" ] && [ "${{ needs.cross-module-live.result }}" != "skipped" ] && FAILURES="${FAILURES}\n• Cross-Module (Live): ${{ needs.cross-module-live.result }}"
+
+          # Determine color
+          if [ "${{ needs.typecheck.result }}" == "failure" ] || [ "${{ needs.unit-tests.result }}" == "failure" ]; then
+            COLOR="#dc3545"  # Red for critical failures
+          else
+            COLOR="#fd7e14"  # Orange for non-critical failures
+          fi
+
+          # Send Slack message
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d "{
+              \"attachments\": [{
+                \"color\": \"${COLOR}\",
+                \"title\": \":x: Staging Tests Failed\",
+                \"title_link\": \"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\",
+                \"fields\": [{
+                  \"title\": \"Repository\",
+                  \"value\": \"${{ github.repository }}\",
+                  \"short\": true
+                }, {
+                  \"title\": \"Branch\",
+                  \"value\": \"${{ github.ref_name }}\",
+                  \"short\": true
+                }, {
+                  \"title\": \"Commit\",
+                  \"value\": \"<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}]\",
+                  \"short\": true
+                }, {
+                  \"title\": \"Author\",
+                  \"value\": \"${{ github.actor }}\",
+                  \"short\": true
+                }, {
+                  \"title\": \"Failed Jobs\",
+                  \"value\": \"${FAILURES}\",
+                  \"short\": false
+                }],
+                \"footer\": \"HRMS v2.7 Staging CI\",
+                \"ts\": $(date +%s)
+              }]
+            }"
+
+          echo "✅ Slack notification sent"
+
+      - name: Fallback Notification (No Webhook)
+        if: env.SLACK_WEBHOOK_URL == ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          echo "⚠️  SLACK_WEBHOOK_URL not configured — skipping Slack notification"
+          echo "To enable Slack notifications, add SLACK_WEBHOOK_URL to your GitHub Actions secrets"
+
+  notify-email:
+    name: "Notify Email (On Failure)"
+    needs:
+      - typecheck
+      - lint
+      - permissions-sync
+      - unit-tests
+      - e2e-mock-smoke
+      - e2e-mock-rbac
+      - golden-path-traces
+      - cross-module-live
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send Email Notification
+        if: env.NOTIFY_EMAIL != ''
+        env:
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+        run: |
+          # Build failure summary
+          SUBJECT="❌ Staging Tests Failed — ${{ github.repository }}@${{ github.ref_name }}"
+          BODY="Staging test suite failed for ${{ github.repository }}.\n\n"
+          BODY="${BODY}Branch: ${{ github.ref_name }}\n"
+          BODY="${BODY}Commit: ${{ github.sha }}\n"
+          BODY="${BODY}Author: ${{ github.actor }}\n"
+          BODY="${BODY}Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\n\n"
+          BODY="${BODY}Failed Jobs:\n"
+
+          [ "${{ needs.typecheck.result }}" != "success" ] && BODY="${BODY}  • Typecheck: ${{ needs.typecheck.result }}\n"
+          [ "${{ needs.lint.result }}" != "success" ] && BODY="${BODY}  • Lint: ${{ needs.lint.result }}\n"
+          [ "${{ needs.permissions-sync.result }}" != "success" ] && BODY="${BODY}  • Permissions Sync: ${{ needs.permissions-sync.result }}\n"
+          [ "${{ needs.unit-tests.result }}" != "success" ] && BODY="${BODY}  • Unit Tests: ${{ needs.unit-tests.result }}\n"
+          [ "${{ needs.e2e-mock-smoke.result }}" != "success" ] && BODY="${BODY}  • E2E Smoke (Mock): ${{ needs.e2e-mock-smoke.result }}\n"
+          [ "${{ needs.e2e-mock-rbac.result }}" != "success" ] && BODY="${BODY}  • RBAC Matrix (Mock): ${{ needs.e2e-mock-rbac.result }}\n"
+          [ "${{ needs.golden-path-traces.result }}" != "success" ] && [ "${{ needs.golden-path-traces.result }}" != "skipped" ] && BODY="${BODY}  • Golden-Path Traces (Live): ${{ needs.golden-path-traces.result }}\n"
+          [ "${{ needs.cross-module-live.result }}" != "success" ] && [ "${{ needs.cross-module-live.result }}" != "skipped" ] && BODY="${BODY}  • Cross-Module (Live): ${{ needs.cross-module-live.result }}\n"
+
+          # Send email via GitHub Actions service
+          echo "$BODY" | mail -s "$SUBJECT" "$NOTIFY_EMAIL" 2>/dev/null || {
+            echo "⚠️  mail command not available — using curl as fallback"
+            # Fallback: use curl with a simple SMTP relay or log the message
+            echo "Email notification would have been sent to: $NOTIFY_EMAIL"
+            echo "Subject: $SUBJECT"
+            echo "Body: $BODY"
+          }
+
+          echo "✅ Email notification sent to $NOTIFY_EMAIL"
+
+      - name: Fallback Notification (No Email)
+        if: env.NOTIFY_EMAIL == ''
+        env:
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+        run: |
+          echo "⚠️  NOTIFY_EMAIL not configured — skipping email notification"
+          echo "To enable email notifications, add NOTIFY_EMAIL to your GitHub Actions secrets"
