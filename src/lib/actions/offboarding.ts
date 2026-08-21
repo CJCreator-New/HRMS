@@ -116,7 +116,7 @@ export async function rescindResignationAction(separationId: string) {
   return { success: true, record: data };
 }
 
-async function getFfSettlementId(supabase: any, separationId: string) {
+async function getFfSettlementId(supabase: Awaited<ReturnType<typeof createClient>>, separationId: string) {
   const { data } = await supabase
     .from("ff_settlement_records")
     .select("id, employee_id")

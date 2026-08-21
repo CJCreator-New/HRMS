@@ -30,15 +30,18 @@ const MODULAR_FILES = [
   "17_scheduled_jobs.sql",
   "18_search.sql",
   "19_reports.sql",
+  "20_performance_optimizations.sql",
+  "21_rbac_scope_fallback.sql",
+  "22_comprehensive_performance_indexes.sql",
   "bootstrap/01_system_admin.sql",
 ];
 
-console.log("Synchronizing schema/combined_init.sql from 20 modular schema files...");
+console.log("Synchronizing schema/combined_init.sql from 24 modular schema files...");
 
 let combinedContent = `-- ============================================================================
 -- HRMS v2.7 — Master Combined Database Initializer Script
 -- Generated Automatically via scripts/db-apply.mjs
--- Source: schema/00_setup.sql through 19_reports.sql + bootstrap
+-- Source: schema/00_setup.sql through 22_comprehensive_performance_indexes.sql + bootstrap
 -- ============================================================================
 
 `;

@@ -25,7 +25,7 @@ export async function validateRequestOrigin(): Promise<{ error: string } | null>
 
   let headersList: Headers | null = null;
   try {
-    headersList = (await headers()) as unknown as Headers;
+    headersList = await headers() as Headers;
   } catch {
     // Called outside request scope (e.g. unit test or background action) — allow
     return null;
@@ -97,14 +97,14 @@ export function sanitizeInput(input: string | null | undefined): string {
  * Sanitizes multiple string fields from an object.
  * Pass the field names that contain user-generated text.
  */
-export function sanitizeFields(
-  data: Record<string, any>,
-  fields: string[]
-): Record<string, any> {
+export function sanitizeFields<T extends Record<string, unknown>>(
+  data: T,
+  fields: (keyof T & string)[]
+): T {
   const sanitized = { ...data };
   for (const field of fields) {
     if (typeof sanitized[field] === "string") {
-      sanitized[field] = sanitizeInput(sanitized[field]);
+      (sanitized as Record<string, unknown>)[field] = sanitizeInput(sanitized[field] as string);
     }
   }
   return sanitized;

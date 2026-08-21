@@ -1,10 +1,10 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import type { BatchSchemaDefinition } from "./types";
 
 /**
  * Generates CSV content as a string for a given schema definition.
  */
-export function generateCsvTemplate(schema: BatchSchemaDefinition): string {
+export function generateCsvTemplate(schema: BatchSchemaDefinition<any>): string {
   const headers = schema.columns.map((c) => c.key);
   const rows: string[][] = [headers];
 
@@ -40,74 +40,76 @@ export function generateCsvTemplate(schema: BatchSchemaDefinition): string {
  * Generates an XLSX workbook binary buffer for a given schema definition.
  * Includes column headers, descriptions/notes, and sample rows.
  */
-export function generateXlsxTemplate(schema: BatchSchemaDefinition): Uint8Array {
-  const wb = XLSX.utils.book_new();
+export async function generateXlsxTemplate(schema: BatchSchemaDefinition<any>): Promise<Uint8Array> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "HRMS System";
+  workbook.created = new Date();
 
-  const headers = schema.columns.map((c) => c.key);
-  const dataRows: (string | number | boolean)[][] = [headers];
+  // Data sheet
+  const sheetName = schema.displayName.slice(0, 31);
+  const worksheet = workbook.addWorksheet(sheetName);
+
+  worksheet.columns = schema.columns.map((c) => ({
+    header: c.key,
+    key: c.key,
+    width: 18,
+  }));
 
   if (schema.sampleRows && schema.sampleRows.length > 0) {
     for (const sample of schema.sampleRows) {
-      dataRows.push(headers.map((h) => sample[h] ?? ""));
+      worksheet.addRow(sample);
     }
   } else {
-    const exampleRow = schema.columns.map((c) => c.exampleValue ?? "");
-    dataRows.push(exampleRow);
+    const exampleRow: Record<string, unknown> = {};
+    for (const col of schema.columns) {
+      exampleRow[col.key] = col.exampleValue ?? "";
+    }
+    worksheet.addRow(exampleRow);
   }
 
-  const ws = XLSX.utils.aoa_to_sheet(dataRows);
-
-  // Set column widths
-  ws["!cols"] = schema.columns.map((c) => ({
-    wch: Math.max(c.key.length, c.label.length, 18),
-  }));
-
-  XLSX.utils.book_append_sheet(wb, ws, "Template");
-
-  // Add Instructions sheet if schema has descriptions or notes
-  const instructions: (string | number)[][] = [
-    ["Column", "Label", "Required", "Type", "Allowed Values / Format", "Description"],
+  // Add instructions sheet
+  const wsInstructions = workbook.addWorksheet("Instructions");
+  wsInstructions.columns = [
+    { header: "Column Name", key: "colName", width: 22 },
+    { header: "Required", key: "required", width: 10 },
+    { header: "Data Type", key: "dataType", width: 12 },
+    { header: "Allowed Values / Format", key: "allowedValues", width: 30 },
+    { header: "Description", key: "description", width: 45 },
   ];
 
-  for (const col of schema.columns) {
-    instructions.push([
-      col.key,
-      col.label,
-      col.required ? "Yes" : "No",
-      col.type || "string",
-      col.enumValues ? col.enumValues.join(", ") : (col.pattern ? col.pattern.toString() : ""),
-      col.description || "",
-    ]);
+  for (const c of schema.columns) {
+    wsInstructions.addRow({
+      colName: c.label,
+      required: c.required ? "YES" : "NO",
+      dataType: c.type || "string",
+      allowedValues: c.enumValues
+        ? c.enumValues.join(", ")
+        : c.type === "pan"
+        ? "AAAAA9999A"
+        : c.type === "date"
+        ? "YYYY-MM-DD"
+        : "-",
+      description: c.description || "",
+    });
   }
 
   if (schema.notes && schema.notes.length > 0) {
-    instructions.push([]);
-    instructions.push(["General Notes & Instructions:"]);
+    wsInstructions.addRow({});
+    wsInstructions.addRow({ colName: "General Notes & Instructions:" });
     for (const note of schema.notes) {
-      instructions.push([note]);
+      wsInstructions.addRow({ colName: note });
     }
   }
 
-  const wsInstructions = XLSX.utils.aoa_to_sheet(instructions);
-  wsInstructions["!cols"] = [
-    { wch: 22 },
-    { wch: 22 },
-    { wch: 10 },
-    { wch: 12 },
-    { wch: 30 },
-    { wch: 45 },
-  ];
-  XLSX.utils.book_append_sheet(wb, wsInstructions, "Instructions");
-
-  const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-  return new Uint8Array(wbout);
+  const buffer = await workbook.xlsx.writeBuffer();
+  return new Uint8Array(buffer);
 }
 
 /**
  * Triggers a browser download of a template file (.csv or .xlsx).
  */
-export function downloadTemplateFile(
-  schema: BatchSchemaDefinition,
+export async function downloadTemplateFile(
+  schema: BatchSchemaDefinition<any>,
   format: "csv" | "xlsx"
 ) {
   const baseName = schema.templateFileName.replace(/\.(csv|xlsx)$/i, "");
@@ -124,8 +126,8 @@ export function downloadTemplateFile(
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   } else {
-    const xlsxBuffer = generateXlsxTemplate(schema);
-    const blob = new Blob([xlsxBuffer as any], {
+    const xlsxBuffer = await generateXlsxTemplate(schema);
+    const blob = new Blob([xlsxBuffer.buffer as ArrayBuffer], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
     const url = URL.createObjectURL(blob);

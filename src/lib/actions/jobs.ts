@@ -4,7 +4,19 @@ import { createClient } from "@/lib/supabase/server";
 import { assertPermission } from "@/lib/auth/assertPermission";
 import { validateRequestOrigin } from "@/lib/security";
 
-export async function getScheduledJobLogsAction(): Promise<{ logs: any[]; error?: string }> {
+export interface ScheduledJobLog {
+  id: string;
+  job_name: string;
+  status: string;
+  records_processed_count?: number | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  error_message?: string | null;
+  created_at?: string | null;
+  [key: string]: unknown;
+}
+
+export async function getScheduledJobLogsAction(): Promise<{ logs: ScheduledJobLog[]; error?: string }> {
   const permError = await assertPermission("job.view");
   if (permError) return { logs: [], error: permError.error };
 
@@ -16,7 +28,7 @@ export async function getScheduledJobLogsAction(): Promise<{ logs: any[]; error?
     .limit(30);
 
   if (error) return { logs: [], error: error.message };
-  return { logs: data || [] };
+  return { logs: (data as ScheduledJobLog[]) || [] };
 }
 
 export async function runScheduledJobAction(jobName: string): Promise<{ success: boolean; error?: string }> {

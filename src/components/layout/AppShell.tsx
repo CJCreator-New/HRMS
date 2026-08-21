@@ -56,8 +56,12 @@ export function AppShell({
 }) {
   const pathname = usePathname();
 
-  // Route-group separation: Login & 403 pages render cleanly without sidebar shell
-  const shell = pathname === "/login" || pathname === "/403" ? children : <AppShellContent>{children}</AppShellContent>;
+  // Route-group separation: Login & 403 pages render cleanly without RoleProvider or sidebar shell
+  const isPublicRoute = pathname === "/login" || pathname === "/403";
+
+  if (isPublicRoute) {
+    return <ToastProvider>{children}</ToastProvider>;
+  }
 
   return (
     <ToastProvider>
@@ -66,7 +70,7 @@ export function AppShell({
         initialUserName={initialUserName}
         initialMustChangePassword={initialMustChangePassword}
       >
-        {shell}
+        <AppShellContent>{children}</AppShellContent>
       </RoleProvider>
     </ToastProvider>
   );

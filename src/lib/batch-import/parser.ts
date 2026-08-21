@@ -1,4 +1,5 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
+import Papa from "papaparse";
 import type {
   BatchColumnDefinition,
   BatchSchemaDefinition,
@@ -25,30 +26,72 @@ export function normalizeHeader(header: string): string {
 /**
  * Parses raw text (CSV) or ArrayBuffer / Buffer (XLSX or CSV) into an array of objects.
  */
-export function parseRawFileContent(
+export async function parseRawFileContent(
   content: string | ArrayBuffer | Uint8Array
-): Array<Record<string, any>> {
-  let workbook: XLSX.WorkBook;
-
+): Promise<Array<Record<string, unknown>>> {
   if (typeof content === "string") {
-    workbook = XLSX.read(content, { type: "string", cellDates: true });
-  } else {
-    workbook = XLSX.read(content, { type: "array", cellDates: true });
+    const parsed = Papa.parse<Record<string, unknown>>(content, {
+      header: true,
+      skipEmptyLines: "greedy",
+      transformHeader: (header) => header.trim(),
+    });
+    return (parsed.data || []) as Array<Record<string, unknown>>;
   }
 
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) return [];
+  const uint8 = content instanceof Uint8Array ? content : new Uint8Array(content);
 
-  const worksheet = workbook.Sheets[sheetName];
-  if (!worksheet) return [];
+  // Check if buffer is an XLSX file (PK zip signature: 0x50, 0x4B)
+  const isZip = uint8.length >= 4 && uint8[0] === 0x50 && uint8[1] === 0x4b;
 
-  // Parse to array of objects with raw headers
-  const rawRows: Array<Record<string, any>> = XLSX.utils.sheet_to_json(worksheet, {
-    defval: "",
-    raw: false,
+  if (isZip) {
+    const workbook = new ExcelJS.Workbook();
+    const arrayBuffer = uint8.buffer.slice(uint8.byteOffset, uint8.byteOffset + uint8.byteLength) as ArrayBuffer;
+    await workbook.xlsx.load(arrayBuffer);
+
+    const worksheet = workbook.worksheets[0];
+    if (!worksheet) return [];
+
+    const headers: string[] = [];
+    const headerRow = worksheet.getRow(1);
+    headerRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      headers[colNumber] = cell.text?.trim() || "";
+    });
+
+    const rawRows: Array<Record<string, unknown>> = [];
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      const rowObj: Record<string, unknown> = {};
+      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        const header = headers[colNumber];
+        if (header) {
+          let val: unknown = cell.value;
+          if (val && typeof val === "object") {
+            if ("result" in (val as Record<string, unknown>)) {
+              val = (val as Record<string, unknown>).result;
+            } else if ("text" in (val as Record<string, unknown>)) {
+              val = (val as Record<string, unknown>).text;
+            }
+          }
+          if (val instanceof Date) {
+            val = val.toISOString().split("T")[0];
+          }
+          rowObj[header] = val !== undefined && val !== null ? String(val).trim() : "";
+        }
+      });
+      rawRows.push(rowObj);
+    });
+
+    return rawRows;
+  }
+
+  // Otherwise, treat as UTF-8 CSV text
+  const text = new TextDecoder("utf-8").decode(uint8);
+  const parsed = Papa.parse<Record<string, unknown>>(text, {
+    header: true,
+    skipEmptyLines: "greedy",
+    transformHeader: (header) => header.trim(),
   });
-
-  return rawRows;
+  return (parsed.data || []) as Array<Record<string, unknown>>;
 }
 
 /**
@@ -56,9 +99,9 @@ export function parseRawFileContent(
  */
 function validateColumnValue(
   col: BatchColumnDefinition,
-  rawValue: any,
-  row: Record<string, any>
-): { value: any; error: string | null } {
+  rawValue: unknown,
+  row: Record<string, unknown>
+): { value: unknown; error: string | null } {
   let val = rawValue !== undefined && rawValue !== null ? String(rawValue).trim() : "";
 
   // Check required
@@ -162,18 +205,19 @@ function validateColumnValue(
     }
   }
 
+  let finalVal: unknown = val;
   if (col.transform) {
-    val = col.transform(val);
+    finalVal = col.transform(val);
   }
 
-  return { value: val, error: null };
+  return { value: finalVal, error: null };
 }
 
 /**
  * Validates an array of parsed rows against a BatchSchemaDefinition.
  */
-export function validateBatchRows<T = any>(
-  rawRows: Array<Record<string, any>>,
+export function validateBatchRows<T = Record<string, unknown>>(
+  rawRows: Array<Record<string, unknown>>,
   schema: BatchSchemaDefinition<T>
 ): BatchValidationReport<T> {
   const maxRows = schema.maxRows ?? 500;
@@ -204,16 +248,17 @@ export function validateBatchRows<T = any>(
   }
 
   const processedRows: BatchRowResult<T>[] = [];
+  const processedDataSoFar: T[] = [];
   let validCount = 0;
   let invalidCount = 0;
 
   for (let i = 0; i < rawRows.length; i++) {
     const rawRow = rawRows[i];
     const rowErrors: string[] = [];
-    const normalizedRowData: Record<string, any> = {};
+    const normalizedRowData: Record<string, unknown> = {};
 
     // Map each raw key to matched schema column
-    const rawRowNormalized: Record<string, any> = {};
+    const rawRowNormalized: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(rawRow)) {
       rawRowNormalized[normalizeHeader(key)] = val;
     }
@@ -231,8 +276,7 @@ export function validateBatchRows<T = any>(
     }
 
     if (schema.rowValidator) {
-      const allNormalizedSoFar = processedRows.map((r) => r.data);
-      const rowErr = schema.rowValidator(normalizedRowData as T, i, allNormalizedSoFar);
+      const rowErr = schema.rowValidator(normalizedRowData as T, i, processedDataSoFar);
       if (rowErr) {
         rowErrors.push(rowErr);
       }
@@ -245,6 +289,7 @@ export function validateBatchRows<T = any>(
       invalidCount++;
     }
 
+    processedDataSoFar.push(normalizedRowData as T);
     processedRows.push({
       rowNumber: i + 1,
       status: isValid ? "valid" : "invalid",
@@ -268,21 +313,22 @@ export function validateBatchRows<T = any>(
  * High-level parser that takes raw file content (CSV text or ArrayBuffer) and schema,
  * parses and returns the full validation report.
  */
-export function parseAndValidateBatchFile<T = any>(
+export async function parseAndValidateBatchFile<T = Record<string, unknown>>(
   fileContent: string | ArrayBuffer | Uint8Array,
   schema: BatchSchemaDefinition<T>
-): BatchValidationReport<T> {
+): Promise<BatchValidationReport<T>> {
   try {
-    const rawRows = parseRawFileContent(fileContent);
+    const rawRows = await parseRawFileContent(fileContent);
     return validateBatchRows(rawRows, schema);
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Invalid CSV or XLSX format";
     return {
       totalRows: 0,
       validCount: 0,
       invalidCount: 0,
       rows: [],
       isValid: false,
-      errors: [`Failed to parse file: ${err?.message || "Invalid CSV or XLSX format"}`],
+      errors: [`Failed to parse file: ${message}`],
     };
   }
 }

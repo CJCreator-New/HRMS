@@ -39,7 +39,7 @@ interface EmployeeOption {
 }
 
 export default function SalaryManagementPage() {
-  const { can, isManager } = usePermission();
+  const { can } = usePermission();
   const { toast } = useToast();
   const [components, setComponents] = useState<ComponentItem[]>([]);
   const [salaryVersions, setSalaryVersions] = useState<SalaryVersion[]>([]);
@@ -55,23 +55,25 @@ export default function SalaryManagementPage() {
   const loadData = async (targetEmpId?: string) => {
     setLoading(true);
     const res = await getSalaryDataAction(targetEmpId);
-    if ((res as any).employeeId) {
-      setEmployeeId((res as any).employeeId);
+    if ("employeeId" in res && res.employeeId) {
+      setEmployeeId(res.employeeId);
     }
-    if ((res as any).employees?.length) {
-      setEmployees((res as any).employees);
+    if ("employees" in res && res.employees && res.employees.length > 0) {
+      setEmployees(res.employees);
     }
-    const rawComps: any[] = (res as any).components || [];
-    setComponents(rawComps.map((c: any) => ({
-      id: c.id, code: c.code, name: c.name,
+    const rawComps = ("components" in res && res.components) || [];
+    setComponents(rawComps.map((c: { id: string; code: string; name: string; component_type?: "earning" | "deduction"; calculation_type?: "flat_amount" | "percentage_of_basic"; is_taxable?: boolean; is_pf_applicable?: boolean; is_esi_applicable?: boolean }) => ({
+      id: c.id,
+      code: c.code,
+      name: c.name,
       type: c.component_type || "earning",
       calc_type: c.calculation_type || "flat_amount",
       is_taxable: c.is_taxable || false,
       is_pf: c.is_pf_applicable || false,
       is_esi: c.is_esi_applicable || false,
     })));
-    const rawAssign: any[] = (res as any).assignments || [];
-    setSalaryVersions(rawAssign.map((a: any, idx: number) => ({
+    const rawAssign = ("assignments" in res && res.assignments) || [];
+    setSalaryVersions(rawAssign.map((a: { annual_ctc?: number; monthly_gross?: number; basic_monthly?: number; effective_from?: string; effective_to?: string | null }, idx: number) => ({
       version_number: idx + 1,
       annual_ctc: a.annual_ctc || 0,
       monthly_gross: a.monthly_gross || 0,
@@ -89,7 +91,7 @@ export default function SalaryManagementPage() {
   const canViewAll = can("salary.view.all");
   const canViewSelf = can("salary.view.self");
 
-  if (isManager && !canViewAll && !canViewSelf) {
+  if (!canViewAll && !canViewSelf) {
     return (
       <div className="p-8 text-center bg-surface rounded-xl border border-line shadow-xs space-y-3">
         <Shield className="w-10 h-10 text-red-500 mx-auto" />

@@ -25,7 +25,7 @@ export interface AuthDiagnosticReport {
   requestHeaders: Record<string, string>;
   errorClassification: "NONE" | "CORS_BLOCKED" | "NETWORK_OFFLINE_OR_DROPPED" | "CONFIG_MISMATCH" | "SERVER_REJECTED_PROMISE" | "AUTH_INVALID_CREDENTIALS" | "AUTH_GENERAL_ERROR";
   summary: string;
-  details: Record<string, any>;
+  details: Record<string, unknown>;
 }
 
 /**
@@ -66,17 +66,26 @@ export function getCapturedAuthHeaders(customHeaders?: Record<string, string>): 
  * Classifies an authentication error into network, CORS, configuration, or server rejection categories
  */
 export function classifyAuthError(
-  err: any,
+  err: unknown,
   context: AuthDiagnosticContext,
-  durationMs: number
+  _durationMs: number
 ): {
   type: AuthDiagnosticReport["errorClassification"];
   summary: string;
   diagnosticAdvice: string;
 } {
-  const errMsg = (err?.message || (typeof err === "string" ? err : "")).toLowerCase();
-  const errCode = (err?.code || (err as any)?.errorCode || "").toLowerCase();
-  const status = (err as any)?.status;
+  const errorObj = typeof err === "object" && err !== null ? (err as Record<string, unknown>) : null;
+  const errMsg = (
+    (typeof errorObj?.message === "string" ? errorObj.message : "") ||
+    (err instanceof Error ? err.message : "") ||
+    (typeof err === "string" ? err : "")
+  ).toLowerCase();
+  const errCode = (
+    (typeof errorObj?.code === "string" ? errorObj.code : "") ||
+    (typeof errorObj?.errorCode === "string" ? errorObj.errorCode : "")
+  ).toLowerCase();
+  const status = typeof errorObj?.status === "number" ? errorObj.status : undefined;
+  const errName = typeof errorObj?.name === "string" ? errorObj.name : err instanceof Error ? err.name : "";
 
   // Check if browser is offline
   if (!context.isOnline) {
@@ -98,7 +107,7 @@ export function classifyAuthError(
 
   // Check for CORS policy rejection
   // In browsers, CORS preflight rejections manifest as TypeError: Failed to fetch without HTTP status or status === 0
-  const isTypeError = err?.name === "TypeError" || errMsg.includes("typeerror");
+  const isTypeError = errName === "TypeError" || errMsg.includes("typeerror");
   const isFailedToFetch = errMsg.includes("failed to fetch") || errMsg.includes("networkerror") || errMsg.includes("cross-origin");
   const hasNoStatus = status === undefined || status === 0 || status === null;
 
@@ -120,7 +129,7 @@ export function classifyAuthError(
   }
 
   // Check for server-side promise rejection
-  if (status >= 400 || err?.name === "AuthApiError" || errCode.length > 0) {
+  if ((status !== undefined && status >= 400) || errName === "AuthApiError" || errCode.length > 0) {
     return {
       type: "SERVER_REJECTED_PROMISE",
       summary: `Server returned rejected promise / HTTP status ${status ?? "N/A"} (${errCode || "API_ERROR"}).`,
@@ -143,7 +152,7 @@ export interface InterceptedFetchEvent {
   url: string;
   method: string;
   requestHeaders: Record<string, string>;
-  requestBody: any;
+  requestBody: unknown;
   status: number;
   statusText: string;
   ok: boolean;
@@ -160,7 +169,7 @@ const interceptedHistory: InterceptedFetchEvent[] = [];
 /**
  * Safely sanitizes request body to prevent leaking raw plaintext secrets in telemetry
  */
-function sanitizeRequestBody(body: any): any {
+function sanitizeRequestBody(body: unknown): unknown {
   if (!body) return null;
   try {
     if (typeof body === "string") {
@@ -179,7 +188,7 @@ function sanitizeRequestBody(body: any): any {
       return body;
     }
     if (body instanceof FormData) {
-      const entries: Record<string, any> = {};
+      const entries: Record<string, unknown> = {};
       body.forEach((val, key) => {
         entries[key] = key.toLowerCase().includes("password") ? "•••••••• (masked)" : val;
       });
@@ -216,7 +225,7 @@ export function installFetchDiagnosticsInterceptor(
   ): Promise<Response> {
     const startTime = performance.now();
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-    const method = init?.method || (typeof input === "object" && "method" in input ? (input as any).method : "GET");
+    const method = init?.method || (typeof input === "object" && "method" in input ? (input as Request).method : "GET");
     
     // Extract headers
     const headersRecord: Record<string, string> = {};
@@ -275,12 +284,12 @@ export function installFetchDiagnosticsInterceptor(
       }
 
       return response;
-    } catch (fetchError: any) {
+    } catch (fetchError: unknown) {
       const endTime = performance.now();
       const durationMs = Math.round(endTime - startTime);
-      const errMsg = fetchError?.message || String(fetchError);
+      const errMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
       const isCorsOrNetwork =
-        fetchError?.name === "TypeError" ||
+        (fetchError instanceof Error && fetchError.name === "TypeError") ||
         errMsg.toLowerCase().includes("failed to fetch") ||
         errMsg.toLowerCase().includes("networkerror") ||
         errMsg.toLowerCase().includes("cors");

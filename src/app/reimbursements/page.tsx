@@ -50,25 +50,27 @@ export default function ReimbursementsPage() {
   const loadData = async () => {
     setLoading(true);
     const res = await getReimbursementDataAction();
-    setEmployeeId((res as any).employeeId || null);
-    const rawCats: any[] = (res as any).categories || [];
-    setCategories(rawCats.map((c: any) => ({
-      id: c.id, code: c.code, name: c.name,
+    setEmployeeId(res.employeeId || null);
+    const rawCats = res.categories || [];
+    setCategories(rawCats.map((c: { id: string; code: string; name: string; max_limit?: number; duplicate_policy?: string; approval_route?: string; is_taxable?: boolean }) => ({
+      id: c.id,
+      code: c.code,
+      name: c.name,
       max_limit: c.max_limit || 0,
-      duplicate_policy: c.duplicate_policy || "warn_and_allow",
-      approval_route: c.approval_route || "manager_only",
+      duplicate_policy: c.duplicate_policy === "hard_block" ? "block" : (c.duplicate_policy as Category["duplicate_policy"]) || "warn_and_allow",
+      approval_route: (c.approval_route === "manager_then_hr" ? "manager_then_hr" : "manager_only") as Category["approval_route"],
       is_taxable: c.is_taxable || false,
     })));
     if (rawCats.length > 0) setCatId(rawCats[0].id);
-    const rawClaims: any[] = (res as any).claims || [];
-    setClaims(rawClaims.map((c: any) => ({
+    const rawClaims = res.claims || [];
+    setClaims(rawClaims.map((c: { id: string; employees?: { full_name?: string | null } | null; reimbursement_categories?: { name?: string | null; is_taxable?: boolean | null } | null; claim_date: string; vendor_name: string; requested_amount: number; approved_amount?: number | null; is_duplicate_warning?: boolean | null; status: "submitted" | "pending_manager" | "pending_hr" | "approved" | "rejected"; receipt_path?: string | null }) => ({
       id: c.id,
       employee_name: c.employees?.full_name || "Me",
       category_name: c.reimbursement_categories?.name || "Expense",
       claim_date: c.claim_date,
       vendor_name: c.vendor_name,
       requested_amount: c.requested_amount,
-      approved_amount: c.approved_amount,
+      approved_amount: c.approved_amount ?? undefined,
       is_duplicate_warning: c.is_duplicate_warning || false,
       is_taxable: c.reimbursement_categories?.is_taxable || false,
       status: c.status,

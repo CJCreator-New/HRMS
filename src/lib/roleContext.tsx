@@ -54,35 +54,20 @@ export function RoleProvider({
   });
 
   useEffect(() => {
-    getCurrentUserRolesAction().then((res) => {
-      if (res?.roles && res.roles.length > 0) {
-        setAssignedRoles(res.roles as RoleCode[]);
-        setActiveRoleState((prev) => {
-          if (typeof window !== "undefined") {
-            const saved = localStorage.getItem("hrms_last_active_role") as RoleCode;
-            if (saved && res.roles.includes(saved)) return saved;
-          }
-          if (res.roles.includes(prev)) return prev;
-          return (res.roles[0] as RoleCode) || "employee";
-        });
-      }
-      if (res?.mustChangePassword !== undefined) {
-        setMustChangePassword(res.mustChangePassword);
-      }
-      if (res?.userName) {
-        setUserName(res.userName);
-      }
-    });
+    // Only query pending approvals if the active focus or assigned roles include approver capability
+    const approverRoles: RoleCode[] = ["manager", "hr", "payroll_admin", "system_admin"];
+    const isApproverFocus = approverRoles.includes(activeRole);
 
-    // WS-A A6: the shell loads the approvals badge in the same mount as the role
-    // fetch (instead of the sidebar firing its own request). A badge failure must
-    // never break the shell, so failures are swallowed and the badge stays 0.
-    getPendingApprovalsCountAction()
-      .then((res) => {
-        if (typeof res?.count === "number") setPendingApprovalsCount(res.count);
-      })
-      .catch(() => {});
-  }, []);
+    if (isApproverFocus) {
+      getPendingApprovalsCountAction(activeRole)
+        .then((res) => {
+          if (typeof res?.count === "number") setPendingApprovalsCount(res.count);
+        })
+        .catch(() => {});
+    } else {
+      setPendingApprovalsCount(0);
+    }
+  }, [assignedRoles, activeRole]);
 
   // Calculate cumulative UNION of permissions across ALL assigned roles (Q2).
   // system_admin bypasses every middleware route gate, so its client-side union
@@ -97,10 +82,32 @@ export function RoleProvider({
   }, [activeRole]);
 
   const setActiveRole = useCallback((role: RoleCode) => {
+    if (!assignedRoles.includes(role)) {
+      const fallback = assignedRoles[0] || "employee";
+      setActiveRoleState(fallback);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("hrms_last_active_role", fallback);
+      }
+      return;
+    }
     setActiveRoleState(role);
     if (typeof window !== "undefined") {
       localStorage.setItem("hrms_last_active_role", role);
     }
+  }, [assignedRoles]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      getCurrentUserRolesAction()
+        .then((res) => {
+          if (res?.roles && res.roles.length > 0) {
+            setAssignedRoles(res.roles as RoleCode[]);
+          }
+        })
+        .catch(() => {});
+    };
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
   }, []);
 
   const hasPermission = useCallback(

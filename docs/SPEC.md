@@ -180,6 +180,36 @@ The following items are explicitly out of scope for Phase 1 MVP per FR §11:
 
 ---
 
+## System Health & Diagnostics API
+
+### `GET /api/health`
+Lightweight diagnostic endpoint for container readiness probes, load balancers, and synthetic monitoring.
+
+- **Response Format**: `application/json`
+- **HTTP Status Codes**:
+  - `200 OK`: Backend reachable and database connectivity verified (or active mock mode).
+  - `503 Service Unavailable`: Supabase backend unreachable, degraded, or database connection failed.
+- **Payload Schema**:
+  ```json
+  {
+    "status": "healthy" | "unreachable",
+    "reachable": boolean,
+    "version": "2.7.0",
+    "timestamp": "ISO-8601 string",
+    "supabaseUrl": "string",
+    "latencyMs": number,
+    "checks": {
+      "configured": boolean,
+      "supabaseReachable": boolean,
+      "database": "ok" | "mock_mode_active" | "degraded: ...",
+      "latencyMs": number
+    },
+    "error": string | null
+  }
+  ```
+
+---
+
 ## Further Notes
 
 - **Local Backend First**: The backend and database run locally during development and testing. Migration to cloud Supabase infrastructure will occur after local verification is complete.

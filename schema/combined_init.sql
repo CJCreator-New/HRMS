@@ -1,7 +1,7 @@
 -- ============================================================================
 -- HRMS v2.7 — Master Combined Database Initializer Script
 -- Generated Automatically via scripts/db-apply.mjs
--- Source: schema/00_setup.sql through 19_reports.sql + bootstrap
+-- Source: schema/00_setup.sql through 22_comprehensive_performance_indexes.sql + bootstrap
 -- ============================================================================
 
 -- BEGIN FILE: 00_setup.sql
@@ -260,6 +260,10 @@ create policy employee_roles_self_read on employee_roles for select
   using (employee_id = auth_employee_id() or has_permission('employee.view', employee_id));
 create policy employee_roles_admin_write on employee_roles for insert
   with check (has_permission('settings.manage'));
+create policy employee_roles_admin_update on employee_roles for update
+  using (has_permission('settings.manage')) with check (has_permission('settings.manage'));
+create policy employee_roles_admin_delete on employee_roles for delete
+  using (has_permission('settings.manage'));
 
 -- 5. Seeds: Baseline Roles (§1.1)
 insert into roles (code, name, is_system) values
@@ -267,7 +271,10 @@ insert into roles (code, name, is_system) values
   ('manager', 'Manager', true),
   ('hr', 'HR Admin', true),
   ('payroll_admin', 'Payroll Administrator', true),
-  ('system_admin', 'System Administrator', true)
+  ('system_admin', 'System Administrator', true),
+  ('statutory_admin', 'Statutory Administrator', true),
+  ('finance_admin', 'Finance Administrator', true),
+  ('it_admin', 'IT Administrator', true)
 on conflict (code) do nothing;
 
 -- 6. Seeds: Exact Permission Catalog (§1.2 & Rollout Plan §2)
@@ -308,6 +315,7 @@ insert into permissions (code, description) values
   ('salary.view.self', 'View own salary structure'),
   ('salary.view.all', 'View all employee salary structures'),
   ('salary.edit', 'Edit salary structures and assignments'),
+  ('salary.bulk_assign', 'Bulk assign salary structures and revisions'),
   ('payroll.view', 'View payroll summary and runs'),
   ('payroll.run', 'Initiate payroll run'),
   ('payroll.reopen', 'Reopen payroll run for revision'),
@@ -316,6 +324,9 @@ insert into permissions (code, description) values
   ('payroll.schedule', 'Manage payroll schedule'),
   ('statutory.view', 'View statutory profiles'),
   ('statutory.edit', 'Manage statutory profiles'),
+  ('statutory.bulk_upsert', 'Bulk upsert employee statutory profiles'),
+  ('department.bulk_assign', 'Bulk assign employee departments and hierarchy'),
+  ('calendar.bulk_assign', 'Bulk assign employee work calendar templates'),
   ('reimbursement.apply.self', 'Submit reimbursement claim'),
   ('reimbursement.view.team', 'View team reimbursement claims'),
   ('reimbursement.view.all', 'View all reimbursement claims'),
@@ -354,7 +365,7 @@ select r.id, p.id from roles r, permissions p
 where r.code = 'manager' and p.code in (
   'employee.view.self', 'attendance.mark.self', 'attendance.view.self', 'attendance.correct.self',
   'leave.view.self', 'leave.apply.self', 'leave.cancel.self', 'leave.encash.apply.self',
-  'compoff.apply.self', 'permission.apply.self', 'reimbursement.apply.self',
+  'compoff.apply.self', 'permission.apply.self', 'salary.view.self', 'reimbursement.apply.self',
   'reimbursement.cancel.self', 'attachment.upload', 'attachment.view',
   'employee.view.team', 'attendance.mark.team', 'attendance.view.team', 'attendance.correct.approve',
   'leave.view.team', 'leave.approve.manager', 'leave.cancel.approve', 'permission.approve',
@@ -369,7 +380,8 @@ where r.code = 'hr' and p.code in (
   'employee.view.all', 'employee.create', 'employee.edit', 'employee.import', 'employee.deactivate',
   'attendance.view.all', 'attendance.correct.override', 'leave.view.all', 'leave.approve.hr',
   'leave.cancel.approve', 'leave.manage_types', 'leave.encash.approve', 'salary.view.all', 'salary.edit',
-  'statutory.view', 'statutory.edit', 'reimbursement.approve', 'reimbursement.view.all', 'separation.view',
+  'salary.bulk_assign', 'statutory.view', 'statutory.edit', 'statutory.bulk_upsert', 'department.bulk_assign',
+  'calendar.bulk_assign', 'reimbursement.approve', 'reimbursement.view.all', 'separation.view',
   'separation.create', 'separation.edit', 'offboarding.manage', 'ff.create', 'ff.view', 'ff.approve',
   'compoff.credit.manual', 'compoff.revoke', 'attachment.upload', 'attachment.view', 'reports.export',
   'audit.view', 'settings.manage', 'job.view', 'job.rerun'
@@ -379,9 +391,9 @@ where r.code = 'hr' and p.code in (
 insert into role_permissions (role_id, permission_id)
 select r.id, p.id from roles r, permissions p
 where r.code = 'payroll_admin' and p.code in (
-  'salary.view.all', 'salary.edit', 'payroll.view', 'payroll.run', 'payroll.reopen',
+  'salary.view.all', 'salary.edit', 'salary.bulk_assign', 'payroll.view', 'payroll.run', 'payroll.reopen',
   'payroll.finalize', 'payroll.publish', 'payroll.schedule', 'statutory.view', 'statutory.edit',
-  'ff.view', 'reports.export', 'employee.view.all', 'attendance.view.all',
+  'statutory.bulk_upsert', 'ff.view', 'reports.export', 'employee.view.all', 'attendance.view.all',
   'leave.view.all', 'reimbursement.view.all', 'attachment.view'
 ) on conflict do nothing;
 
@@ -389,7 +401,32 @@ where r.code = 'payroll_admin' and p.code in (
 insert into role_permissions (role_id, permission_id)
 select r.id, p.id from roles r, permissions p
 where r.code = 'system_admin' and p.code in (
-  'settings.manage', 'audit.view', 'job.view', 'job.rerun', 'employee.view.all'
+  'settings.manage', 'audit.view', 'job.view', 'job.rerun', 'employee.view.all',
+  'department.bulk_assign', 'calendar.bulk_assign'
+) on conflict do nothing;
+
+-- Statutory Admin Role Grants
+insert into role_permissions (role_id, permission_id)
+select r.id, p.id from roles r, permissions p
+where r.code = 'statutory_admin' and p.code in (
+  'statutory.view', 'statutory.edit', 'employee.view.all', 'salary.view.all',
+  'payroll.view', 'reports.export', 'attachment.view'
+) on conflict do nothing;
+
+-- Finance Admin Role Grants
+insert into role_permissions (role_id, permission_id)
+select r.id, p.id from roles r, permissions p
+where r.code = 'finance_admin' and p.code in (
+  'reimbursement.approve', 'reimbursement.view.all', 'ff.view', 'ff.approve',
+  'payroll.view', 'reports.export', 'employee.view.all', 'attachment.view'
+) on conflict do nothing;
+
+-- IT Admin Role Grants
+insert into role_permissions (role_id, permission_id)
+select r.id, p.id from roles r, permissions p
+where r.code = 'it_admin' and p.code in (
+  'attachment.upload', 'attachment.view', 'audit.view', 'job.view', 'job.rerun',
+  'employee.view.all', 'settings.manage'
 ) on conflict do nothing;
 
 
@@ -536,7 +573,7 @@ $$;
 
 -- 6. Separation & Offboarding Workflow (§2.2, §2.3)
 create type separation_type as enum ('resignation', 'termination');
-create type separation_status as enum ('pending', 'active', 'rescinded', 'completed');
+create type separation_status as enum ('pending', 'active', 'rescinded', 'completed', 'withdrawn');
 create type non_working_day_rule as enum ('previous_working_day', 'next_working_day');
 
 create table separation_records (
@@ -632,7 +669,8 @@ create policy separation_read on separation_records for select
   using (employee_id = auth_employee_id() or has_permission('separation.view', employee_id));
 create policy separation_insert on separation_records for insert
   with check (
-    has_permission('separation.create.all')
+    employee_id = auth_employee_id()
+    or has_permission('separation.create.all')
     or (separation_type = 'resignation' and is_current_manager_of(auth_employee_id(), employee_id))
   );
 create policy separation_update on separation_records for update
@@ -1034,8 +1072,7 @@ where lr.status = 'approved';
 -- Strictly aligned with FR §4.1–§4.9 & ADR 0003
 -- ============================================================================
 
--- 1. Leave Enums
-create type leave_request_status as enum ('pending', 'approved', 'rejected', 'cancelled');
+create type leave_request_status as enum ('pending', 'approved', 'rejected', 'cancelled', 'withdrawn');
 create type leave_duration_type as enum ('full_day', 'first_half', 'second_half'); -- FR §3.6a
 create type leave_ledger_transaction as enum (
   'opening', 'accrual', 'usage', 'reservation', 'encashment', 'carry_forward', 'comp_off_expiry', 'lop_conversion', 'manual_adjustment'
@@ -1141,14 +1178,27 @@ create or replace function calculate_leave_days(
   p_employee_id uuid,
   p_leave_type_id uuid,
   p_start_date date,
-  p_end_date date
+  p_end_date date,
+  p_duration_type text default 'full_day' -- 'full_day' | 'first_half' | 'second_half'
 ) returns numeric language plpgsql stable as $$
 declare
   v_sandwich boolean;
   v_curr date := p_start_date;
   v_days numeric := 0;
-begin
+  -- Guard against invalid or excessively large date ranges (> 365 days)
+  if p_end_date < p_start_date then
+    raise exception 'End date cannot precede start date in calculate_leave_days';
+  end if;
+  if p_end_date - p_start_date > 365 then
+    raise exception 'Leave duration cannot exceed 365 days in calculate_leave_days';
+  end if;
+
   select is_sandwich_enabled into v_sandwich from leave_types where id = p_leave_type_id;
+
+  -- Single-day half-day leave: return 0.5 directly
+  if v_is_single_day and p_duration_type in ('first_half', 'second_half') then
+    return 0.5;
+  end if;
 
   while v_curr <= p_end_date loop
     if v_sandwich or is_working_day(p_employee_id, v_curr) then
@@ -1324,6 +1374,14 @@ create policy comp_off_read on comp_off_grants for select
   using (employee_id = auth_employee_id() or has_permission('leave.view', employee_id));
 create policy comp_off_insert on comp_off_grants for insert
   with check (employee_id = auth_employee_id());
+
+-- Performance Indexes
+create index if not exists idx_leave_requests_emp_status_dates
+  on leave_requests (employee_id, status, start_date, end_date);
+create index if not exists idx_leave_requests_leave_type_id
+  on leave_requests (leave_type_id);
+create index if not exists idx_leave_ledger_emp_created
+  on leave_ledger (employee_id, created_at desc);
 
 -- Seed Standard Leave Types Master
 insert into leave_types (code, name, is_sandwich_enabled, requires_attachment, allow_negative_balance) values
@@ -1960,6 +2018,28 @@ create trigger trg_check_reimbursement_dup
   before insert or update on reimbursement_claims
   for each row execute function check_reimbursement_duplicate();
 
+-- 5b. Two-Stage Approval Routing Enforcement Trigger (FR §11.3 / ADR 0003)
+create or replace function check_reimbursement_approval_flow() returns trigger
+language plpgsql as $$
+declare
+  v_route approval_route_type;
+begin
+  if new.status = 'approved' and (old is null or old.status not in ('approved', 'pending_hr')) then
+    select approval_route into v_route
+    from reimbursement_categories where id = new.category_id;
+
+    if v_route = 'manager_then_hr' and (old is null or old.status in ('submitted', 'pending_manager')) then
+      raise exception 'Two-stage approval required: Manager approval must precede HR approval (§11.3)';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger trg_check_reimbursement_route
+  before update on reimbursement_claims
+  for each row execute function check_reimbursement_approval_flow();
+
 -- 6. Row Level Security
 alter table reimbursement_categories enable row level security;
 alter table reimbursement_claims enable row level security;
@@ -2051,8 +2131,7 @@ create policy carry_forward_read on leave_carry_forward_logs for select
 -- Strictly aligned with FR §5.4 & ADR 0003
 -- ============================================================================
 
--- 1. Enums
-create type ff_status as enum ('draft', 'pending_approval', 'approved', 'paid', 'reopened', 'cancelled');
+create type ff_status as enum ('draft', 'pending_approval', 'approved', 'paid', 'reopened', 'cancelled', 'withdrawn');
 
 -- 2. Master Full & Final Settlement Table (§5.4)
 create table ff_settlement_records (
@@ -2334,7 +2413,7 @@ create table scheduled_job_logs (
   completed_at             timestamptz
 );
 
--- 2. Monthly Earned Leave (EL) Accrual Job Function (Zero-seed configurable rate)
+-- 2. Monthly Earned Leave (EL) Accrual Job Function (Set-based, transactional)
 create or replace function job_accrue_monthly_earned_leave(p_accrual_rate numeric default 1.25)
 returns void language plpgsql as $$
 declare
@@ -2342,7 +2421,6 @@ declare
   v_el_type_id uuid;
   v_curr_year integer := extract(year from current_date);
   v_processed integer := 0;
-  r record;
 begin
   insert into scheduled_job_logs (job_name) values ('monthly_el_accrual') returning id into v_job_id;
   select id into v_el_type_id from leave_types where code = 'EL';
@@ -2352,18 +2430,24 @@ begin
     return;
   end if;
 
-  for r in select id from employees where status = 'active' loop
+  with inserted as (
     insert into leave_allocations (employee_id, leave_type_id, year, allocated_days)
-    values (r.id, v_el_type_id, v_curr_year, p_accrual_rate)
+    select id, v_el_type_id, v_curr_year, p_accrual_rate
+    from employees
+    where status = 'active'
     on conflict (employee_id, leave_type_id, year) do update set
       allocated_days = leave_allocations.allocated_days + p_accrual_rate,
-      updated_at = now();
-
-    v_processed := v_processed + 1;
-  end loop;
+      updated_at = now()
+    returning id
+  )
+  select count(*) into v_processed from inserted;
 
   update scheduled_job_logs
   set status = 'success', records_processed_count = v_processed, completed_at = now()
+  where id = v_job_id;
+exception when others then
+  update scheduled_job_logs
+  set status = 'failed', error_details = SQLERRM, completed_at = now()
   where id = v_job_id;
 end;
 $$;
@@ -2391,10 +2475,18 @@ begin
   update scheduled_job_logs
   set status = 'success', records_processed_count = v_count, completed_at = now()
   where id = v_job_id;
+exception when others then
+  update scheduled_job_logs
+  set status = 'failed', error_details = SQLERRM, completed_at = now()
+  where id = v_job_id;
 end;
 $$;
 
--- 4. Row Level Security
+-- 4. Performance Indexes
+create index if not exists idx_comp_off_grants_expiry_status
+  on comp_off_grants (expiry_date, status);
+
+-- 5. Row Level Security
 alter table scheduled_job_logs enable row level security;
 
 create policy job_logs_read on scheduled_job_logs for select
@@ -2421,7 +2513,8 @@ returns table (
   action_url text
 ) language plpgsql stable as $$
 declare
-  v_q text := '%' || trim(p_query) || '%';
+  v_cleaned text := replace(replace(replace(trim(p_query), '\', '\\'), '%', '\%'), '_', '\_');
+  v_q text := '%' || v_cleaned || '%';
   v_actor_id uuid := auth_employee_id();
 begin
   if p_query is null or trim(p_query) = '' then
@@ -2467,6 +2560,14 @@ begin
   limit 5;
 end;
 $$;
+
+-- Trigram Extension & Performance Indexes for Search
+create extension if not exists pg_trgm;
+
+create index if not exists idx_employees_name_trgm on employees using gin (full_name gin_trgm_ops);
+create index if not exists idx_employees_code_trgm on employees using gin (employee_code gin_trgm_ops);
+create index if not exists idx_employees_email_trgm on employees using gin (email gin_trgm_ops);
+create index if not exists idx_departments_name_trgm on departments using gin (name gin_trgm_ops);
 
 
 -- END FILE: 18_search.sql
@@ -2634,6 +2735,254 @@ where cog.status = 'pending';
 
 
 -- END FILE: 19_reports.sql
+
+-- BEGIN FILE: 20_performance_optimizations.sql
+-- ============================================================================
+-- HRMS v2.7 — Module 20: Performance Optimizations & Aggregation Functions
+-- Database Target: PostgreSQL / Supabase
+-- Target File: schema/20_performance_optimizations.sql
+-- ============================================================================
+
+-- 1. Optimized Headcount Aggregation RPC Function
+-- Collapses two separate exact count queries (active and activated_this_month)
+-- into a single roundtrip server-side query.
+-- Security: SECURITY DEFINER with fixed search_path = public allows all authenticated dashboard users to view aggregate headcount without leaking individual employee records.
+create or replace function get_dashboard_headcount()
+returns table(active bigint, new_this_month bigint)
+language sql stable security definer
+set search_path = public as $$
+  select
+    count(*) filter (where status = 'active') as active,
+    count(*) filter (
+      where status = 'active'
+        and activated_at >= date_trunc('month', current_date)
+    ) as new_this_month
+  from employees;
+$$;
+
+-- 2. Performance Indexes on `employees`
+-- Speeds up status filtering and monthly headcount calculation
+create index if not exists idx_employees_status
+  on employees (status);
+
+create index if not exists idx_employees_status_activated_at
+  on employees (status, activated_at);
+
+-- 3. Performance Indexes on `attendance_records`
+-- Optimizes daily punch state lookup per employee and payroll period validation
+create index if not exists idx_attendance_records_employee_date
+  on attendance_records (employee_id, attendance_date);
+
+create index if not exists idx_attendance_records_date_status
+  on attendance_records (attendance_date, status);
+
+-- 4. Foreign Key and RLS Evaluation Performance Indexes
+create index if not exists idx_payslips_employee_id
+  on payslips (employee_id);
+
+create index if not exists idx_reimbursement_claims_employee_id
+  on reimbursement_claims (employee_id);
+
+create index if not exists idx_employee_roles_employee_id
+  on employee_roles (employee_id);
+
+create index if not exists idx_payroll_revisions_period_status
+  on payroll_revisions (payroll_period_id, status);
+
+
+-- END FILE: 20_performance_optimizations.sql
+
+-- BEGIN FILE: 21_rbac_scope_fallback.sql
+-- Migration: 21_rbac_scope_fallback.sql
+-- Description: Adds scope hierarchy fallback (.all > .team > .self) and system_admin bypass to has_any_permission RPC
+-- Security: Uses SECURITY DEFINER with fixed search_path = public to safely inspect RBAC mappings without recursive RLS checks
+
+CREATE OR REPLACE FUNCTION has_any_permission(perm_codes text[])
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  acting_id uuid := auth_employee_id();
+  req_code text;
+BEGIN
+  IF acting_id IS NULL THEN
+    RETURN false;
+  END IF;
+
+  -- System Admin bypass
+  IF EXISTS (
+    SELECT 1 FROM employee_roles er
+    JOIN roles r ON r.id = er.role_id
+    WHERE er.employee_id = acting_id AND r.code = 'system_admin'
+  ) THEN
+    RETURN true;
+  END IF;
+
+  -- Fast path: exact match in held permissions
+  IF EXISTS (
+    SELECT 1 FROM employee_roles er
+    JOIN role_permissions rp ON rp.role_id = er.role_id
+    JOIN permissions p ON p.id = rp.permission_id
+    WHERE er.employee_id = acting_id AND p.code = ANY(perm_codes)
+  ) THEN
+    RETURN true;
+  END IF;
+
+  -- Scope fallback: check if any held permission satisfies the requested codes with scope hierarchy
+  FOREACH req_code IN ARRAY perm_codes LOOP
+    IF EXISTS (
+      SELECT 1 FROM employee_roles er
+      JOIN role_permissions rp ON rp.role_id = er.role_id
+      JOIN permissions p ON p.id = rp.permission_id
+      WHERE er.employee_id = acting_id
+        AND (
+          p.code = req_code
+          OR p.code = req_code || '.all'
+          OR p.code = req_code || '.team'
+          OR p.code = req_code || '.self'
+          OR (req_code LIKE '%.self' AND p.code = REPLACE(req_code, '.self', '.all'))
+          OR (req_code LIKE '%.self' AND p.code = REPLACE(req_code, '.self', '.team'))
+          OR (req_code LIKE '%.team' AND p.code = REPLACE(req_code, '.team', '.all'))
+        )
+    ) THEN
+      RETURN true;
+    END IF;
+  END LOOP;
+
+  RETURN false;
+END;
+$$;
+
+
+-- END FILE: 21_rbac_scope_fallback.sql
+
+-- BEGIN FILE: 22_comprehensive_performance_indexes.sql
+-- ============================================================================
+-- HRMS v2.7 — Module 22: Comprehensive Database Performance Indexes
+-- Database Target: PostgreSQL / Supabase
+-- Target File: schema/22_comprehensive_performance_indexes.sql
+-- ============================================================================
+
+-- 1. Org & Employee Relationships
+create index if not exists idx_employees_manager_id
+  on employees (manager_id);
+
+create index if not exists idx_employee_dept_assign_lookup
+  on employee_department_assignment (department_id, effective_to);
+
+create index if not exists idx_employee_dept_assign_emp
+  on employee_department_assignment (employee_id, effective_to);
+
+create index if not exists idx_employee_mgr_assign_lookup
+  on employee_manager_assignment (manager_id, effective_to);
+
+create index if not exists idx_employee_mgr_assign_emp
+  on employee_manager_assignment (employee_id, effective_to);
+
+create index if not exists idx_employee_desig_assign_emp
+  on employee_designation_assignment (employee_id, effective_to);
+
+-- 2. Calendar & Holidays
+create index if not exists idx_employee_calendar_assign
+  on employee_work_calendar_assignment (employee_id, effective_to);
+
+create index if not exists idx_holidays_template_date
+  on holidays (calendar_template_id, holiday_date);
+
+create index if not exists idx_opt_holiday_emp
+  on employee_optional_holiday_selections (employee_id, holiday_id);
+
+-- 3. Attendance & Corrections
+create index if not exists idx_attendance_punches_record_id
+  on attendance_punches (attendance_record_id);
+
+create index if not exists idx_attendance_corrections_emp_status
+  on attendance_corrections (employee_id, status);
+
+create index if not exists idx_attendance_corrections_status_created
+  on attendance_corrections (status, created_at desc);
+
+create index if not exists idx_attendance_corrections_approver
+  on attendance_corrections (approver_id, status);
+
+-- 4. Leave & Approvals Dashboard Union Optimization
+create index if not exists idx_leave_allocations_emp_type
+  on leave_allocations (employee_id, leave_type_id);
+
+create index if not exists idx_leave_requests_approver_status
+  on leave_requests (current_approver_id, status);
+
+create index if not exists idx_leave_requests_status_created
+  on leave_requests (status, created_at desc);
+
+create index if not exists idx_leave_request_approvals_lookup
+  on leave_request_approvals (leave_request_id, approver_id, status);
+
+create index if not exists idx_comp_off_grants_emp_status
+  on comp_off_grants (employee_id, status);
+
+create index if not exists idx_comp_off_grants_status_created
+  on comp_off_grants (status, created_at desc);
+
+create index if not exists idx_permission_requests_emp_date
+  on permission_requests (employee_id, permission_date);
+
+create index if not exists idx_permission_requests_status_created
+  on permission_requests (status, created_at desc);
+
+-- 5. Salary, Statutory & Payroll
+create index if not exists idx_salary_structures_emp_dates
+  on employee_salary_structures (employee_id, effective_from, effective_to);
+
+create index if not exists idx_salary_structure_items_struct_id
+  on employee_salary_structure_items (salary_structure_id);
+
+create index if not exists idx_payroll_eligibility_emp_dates
+  on payroll_eligibility (employee_id, effective_from);
+
+create index if not exists idx_statutory_profiles_emp
+  on statutory_profiles (employee_id);
+
+-- 6. Reimbursements, Encashment & Offboarding
+create index if not exists idx_reimbursements_status_created
+  on reimbursement_claims (status, created_at desc);
+
+create index if not exists idx_reimbursements_emp_date
+  on reimbursement_claims (employee_id, claim_date);
+
+create index if not exists idx_encashment_status_created
+  on leave_encashment_requests (status, created_at desc);
+
+create index if not exists idx_encashment_emp_status
+  on leave_encashment_requests (employee_id, status);
+
+create index if not exists idx_separation_emp_status
+  on separation_records (employee_id, status);
+
+create index if not exists idx_ff_settlement_separation
+  on ff_settlement_records (separation_id);
+
+create index if not exists idx_ff_settlement_status_created
+  on ff_settlement_records (status, created_at desc);
+
+create index if not exists idx_ff_clearances_settlement
+  on ff_clearances (ff_settlement_id);
+
+-- 7. Attachments & Audit Logs
+create index if not exists idx_attachments_entity
+  on document_attachments (entity_type, entity_id);
+
+create index if not exists idx_attachments_uploaded_by
+  on document_attachments (uploaded_by);
+
+create index if not exists idx_audit_logs_actor
+  on audit_logs (performed_by, created_at desc);
+
+create index if not exists idx_audit_logs_correlation
+  on audit_logs (correlation_id);
+
+
+-- END FILE: 22_comprehensive_performance_indexes.sql
 
 -- BEGIN FILE: bootstrap/01_system_admin.sql
 -- ============================================================================

@@ -10,6 +10,17 @@ import type { BatchCommitResult } from "@/lib/batch-import/types";
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
 const UAN_REGEX = /^\d{12}$/;
 
+export interface StatutoryProfileRecord {
+  id: string;
+  pan_number?: string | null;
+  uan_number?: string | null;
+  pt_state?: string | null;
+  tax_regime?: string | null;
+  is_pf_applicable?: boolean | null;
+  is_esi_applicable?: boolean | null;
+  [key: string]: unknown;
+}
+
 export async function saveStatutoryProfileAction(
   profileId: string,
   panNumber: string,
@@ -18,7 +29,7 @@ export async function saveStatutoryProfileAction(
   taxRegime: "new_regime" | "old_regime",
   pfApplicable: boolean,
   esiApplicable: boolean
-): Promise<{ success: boolean; error?: string; profile?: any }> {
+): Promise<{ success: boolean; error?: string; profile?: StatutoryProfileRecord }> {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { success: false, error: csrfError.error };
 
@@ -85,6 +96,51 @@ export async function bulkUpsertStatutoryProfiles(
   const errors: string[] = [];
   const rowResults: BatchCommitResult<StatutoryImportRow>["rowResults"] = [];
 
+  // --- Bulk Pre-fetch to eliminate N+1 DB queries ---
+  const allEmpCodes = new Set<string>();
+  for (const row of rows) {
+    const code = sanitizeInput(row.employee_code || "").trim();
+    if (code) allEmpCodes.add(code);
+  }
+
+  const { data: preEmployees } = allEmpCodes.size > 0
+    ? await supabase
+        .from("employees")
+        .select("id, employee_code, full_name")
+        .in("employee_code", Array.from(allEmpCodes))
+    : { data: [] };
+
+  const safePreEmployees = Array.isArray(preEmployees)
+    ? preEmployees
+    : preEmployees && typeof preEmployees === "object"
+    ? [preEmployees]
+    : [];
+
+  const empMap = new Map<string, { id: string; employee_code: string; full_name: string }>();
+  for (const e of safePreEmployees) {
+    if (e.employee_code) empMap.set(e.employee_code.toLowerCase(), e);
+  }
+
+  const resolvedEmpIds = Array.from(empMap.values()).map((e) => e.id);
+  const { data: allProfiles } = resolvedEmpIds.length > 0
+    ? await supabase
+        .from("statutory_profiles")
+        .select("id, employee_id, effective_from")
+        .in("employee_id", resolvedEmpIds)
+        .is("effective_to", null)
+    : { data: [] };
+
+  const safeAllProfiles = Array.isArray(allProfiles)
+    ? allProfiles
+    : allProfiles && typeof allProfiles === "object"
+    ? [allProfiles]
+    : [];
+
+  const existingProfileMap = new Map<string, { id: string; effective_from: string }>();
+  for (const p of safeAllProfiles) {
+    existingProfileMap.set(p.employee_id, p);
+  }
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const rowNum = i + 1;
@@ -123,14 +179,21 @@ export async function bulkUpsertStatutoryProfiles(
       continue;
     }
 
-    // 2. Resolve employee by code
-    const { data: emp, error: empErr } = await supabase
-      .from("employees")
-      .select("id, employee_code, full_name")
-      .eq("employee_code", empCode)
-      .maybeSingle();
+    // 2. Resolve employee by code (pre-fetched map with fallback)
+    let emp = empMap.get(empCode.toLowerCase());
+    if (!emp) {
+      const { data: directEmp } = await supabase
+        .from("employees")
+        .select("id, employee_code, full_name")
+        .eq("employee_code", empCode)
+        .maybeSingle();
+      if (directEmp) {
+        emp = directEmp;
+        empMap.set(empCode.toLowerCase(), directEmp);
+      }
+    }
 
-    if (empErr || !emp) {
+    if (!emp) {
       errorCount++;
       const msg = `Row #${rowNum}: Employee code '${empCode}' not found.`;
       errors.push(msg);
@@ -138,13 +201,20 @@ export async function bulkUpsertStatutoryProfiles(
       continue;
     }
 
-    // 3. Check for existing statutory profile
-    const { data: existingProfile } = await supabase
-      .from("statutory_profiles")
-      .select("id, effective_from")
-      .eq("employee_id", emp.id)
-      .is("effective_to", null)
-      .maybeSingle();
+    // 3. Check for existing statutory profile (pre-fetched map with fallback)
+    let existingProfile = existingProfileMap.get(emp.id);
+    if (!existingProfile) {
+      const { data: directProfile } = await supabase
+        .from("statutory_profiles")
+        .select("id, effective_from")
+        .eq("employee_id", emp.id)
+        .is("effective_to", null)
+        .maybeSingle();
+      if (directProfile) {
+        existingProfile = directProfile;
+        existingProfileMap.set(emp.id, directProfile);
+      }
+    }
 
     if (existingProfile) {
       // Update existing open profile

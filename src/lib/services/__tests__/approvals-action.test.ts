@@ -4,12 +4,14 @@ const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
   assertPermission: vi.fn(),
   assertAnyPermission: vi.fn(),
+  getAuthenticatedCaller: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
 vi.mock("@/lib/auth/assertPermission", () => ({
   assertPermission: mocks.assertPermission,
   assertAnyPermission: mocks.assertAnyPermission,
+  getAuthenticatedCaller: mocks.getAuthenticatedCaller,
 }));
 
 import { createFakeSupabase } from "./helpers/fake-supabase";
@@ -23,6 +25,11 @@ import {
 describe("getPendingApprovalsCountAction", () => {
   beforeEach(() => {
     mocks.createClient.mockReset();
+    mocks.getAuthenticatedCaller.mockReset();
+    mocks.getAuthenticatedCaller.mockResolvedValue({
+      employeeId: "00000000-0000-0000-0000-000000000101",
+      email: "admin@company.com",
+    });
   });
 
   it("returns the exact count", async () => {

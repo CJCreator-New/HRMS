@@ -15,7 +15,8 @@ returns table (
   action_url text
 ) language plpgsql stable as $$
 declare
-  v_q text := '%' || trim(p_query) || '%';
+  v_cleaned text := replace(replace(replace(trim(p_query), '\', '\\'), '%', '\%'), '_', '\_');
+  v_q text := '%' || v_cleaned || '%';
   v_actor_id uuid := auth_employee_id();
 begin
   if p_query is null or trim(p_query) = '' then
@@ -61,3 +62,11 @@ begin
   limit 5;
 end;
 $$;
+
+-- Trigram Extension & Performance Indexes for Search
+create extension if not exists pg_trgm;
+
+create index if not exists idx_employees_name_trgm on employees using gin (full_name gin_trgm_ops);
+create index if not exists idx_employees_code_trgm on employees using gin (employee_code gin_trgm_ops);
+create index if not exists idx_employees_email_trgm on employees using gin (email gin_trgm_ops);
+create index if not exists idx_departments_name_trgm on departments using gin (name gin_trgm_ops);

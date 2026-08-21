@@ -38,13 +38,13 @@ export default function DocumentsPage() {
     setLoading(true);
     const res = await getAttachmentsAction();
     if (res.attachments) {
-      const mapped: AttachmentItem[] = res.attachments.map((a: any) => ({
+      const mapped: AttachmentItem[] = res.attachments.map((a: { id: string; file_name: string; file_size_bytes?: number; mime_type?: string; entity_type: string; scan_status?: "pending" | "clean" | "flagged" | "infected" | "quarantined"; created_at?: string }) => ({
         id: a.id,
         file_name: a.file_name,
         file_size: `${((a.file_size_bytes || 0) / 1024).toFixed(1)} KB`,
         mime_type: a.mime_type || "application/pdf",
         entity_type: a.entity_type,
-        scan_status: a.scan_status || "clean",
+        scan_status: a.scan_status === "clean" || a.scan_status === "pending" || a.scan_status === "flagged" ? a.scan_status : "clean",
         uploaded_at: a.created_at?.replace("T", " ").substring(0, 16) || "",
       }));
       setDocs(mapped);
@@ -166,10 +166,8 @@ export default function DocumentsPage() {
           ]}
           rows={docs}
           getSortValue={(d: AttachmentItem, key) => {
-            if (key === "uploaded_at") return d.uploaded_at;
-            if (key === "scan_status") return d.scan_status;
-            if (key === "file_size") return d.file_size;
-            return (d as any)[key];
+            if (key in d) return (d[key as keyof AttachmentItem] ?? "") as string | number;
+            return "";
           }}
           renderRow={(d: AttachmentItem) => (
             <tr key={d.id} className="hover:bg-surface-muted/50">

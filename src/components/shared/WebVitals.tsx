@@ -18,14 +18,20 @@ import { useReportWebVitals } from "next/web-vitals";
  *  - first-load JS < 180 KB gzip per route
  *  - server-action round-trip < 300 ms p95
  */
+declare global {
+  interface Window {
+    __HRMS_WEB_VITALS__?: Record<string, unknown>;
+  }
+}
+
 export function WebVitals() {
   useReportWebVitals((metric) => {
     if (process.env.NODE_ENV === "development") {
       console.info(`[web-vitals] ${metric.name}: ${Math.round(metric.value)} (${metric.rating})`);
     }
     if (typeof window !== "undefined") {
-      const existing = (window as any).__HRMS_WEB_VITALS__ ?? {};
-      (window as any).__HRMS_WEB_VITALS__ = { ...existing, [metric.name]: metric };
+      const existing = window.__HRMS_WEB_VITALS__ ?? {};
+      window.__HRMS_WEB_VITALS__ = { ...existing, [metric.name]: metric };
     }
   });
   return null;

@@ -5,13 +5,26 @@ import { assertPermission, assertCallerIdentity } from "@/lib/auth/assertPermiss
 import { checkActionRateLimit } from "@/lib/auth/rate-limit";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 
+export interface ReimbursementClaimRecord {
+  id: string;
+  employee_id: string;
+  category_id: string;
+  claim_date: string;
+  vendor_name: string;
+  requested_amount: number;
+  approved_amount?: number | null;
+  status: string;
+  is_duplicate_warning?: boolean;
+  [key: string]: unknown;
+}
+
 export async function submitReimbursementClaimAction(
   employeeId: string,
   categoryId: string,
   claimDate: string,
   vendorName: string,
   requestedAmount: number
-): Promise<{ success: boolean; error?: string; claim?: any }> {
+): Promise<{ success: boolean; error?: string; claim?: ReimbursementClaimRecord }> {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { success: false, error: csrfError.error };
 
@@ -154,7 +167,15 @@ export async function approveReimbursementClaimAction(
     nextStatus = "approved";
   }
 
-  const updatePayload: Record<string, any> = {
+  interface ReimbursementUpdatePayload {
+    status: string;
+    approver_id: string | null;
+    updated_at: string;
+    approved_amount?: number;
+    decided_at?: string;
+  }
+
+  const updatePayload: ReimbursementUpdatePayload = {
     status: nextStatus,
     approver_id: deciderId,
     updated_at: new Date().toISOString(),

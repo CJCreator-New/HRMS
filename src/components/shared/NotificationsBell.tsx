@@ -39,7 +39,7 @@ export function NotificationsBell() {
     const interval = setInterval(load, 60000);
 
     // Supabase real-time channel subscription
-    let channel: any = null;
+    let channel: import("@supabase/supabase-js").RealtimeChannel | null = null;
     try {
       const { createClient } = require("@/lib/supabase/client");
       const supabase = createClient();

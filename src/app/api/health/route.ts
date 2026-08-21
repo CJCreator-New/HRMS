@@ -39,11 +39,11 @@ export async function GET() {
       if (pingRes) {
         reachable = true;
       }
-    } catch (pingErr: any) {
+    } catch (pingErr: unknown) {
       reachable = false;
-      errorMessage = pingErr?.name === "AbortError" 
-        ? "Connection to Supabase timed out after 3000ms"
-        : pingErr?.message || "Failed to reach configured Supabase endpoint";
+      const isAbort = pingErr instanceof Error && pingErr.name === "AbortError";
+      const errMsg = pingErr instanceof Error ? pingErr.message : "Failed to reach configured Supabase endpoint";
+      errorMessage = isAbort ? "Connection to Supabase timed out after 3000ms" : errMsg;
     }
   } else {
     // If running in local mock/offline mode with placeholder URL
@@ -66,11 +66,12 @@ export async function GET() {
     } else {
       reachable = true;
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : "connection failed";
     if (isConfigured) {
-      dbStatus = `error: ${err?.message || "connection failed"}`;
+      dbStatus = `error: ${errMsg}`;
       reachable = false;
-      errorMessage = errorMessage || err?.message || "Supabase database client connection failure";
+      errorMessage = errorMessage || (err instanceof Error ? err.message : "Supabase database client connection failure");
     } else {
       dbStatus = "mock_mode_active";
     }
@@ -85,7 +86,7 @@ export async function GET() {
       reachable,
       version: "2.7.0",
       timestamp,
-      supabaseUrl: isConfigured ? rawSupabaseUrl : "mock://local-environment",
+      supabaseUrl: process.env.NODE_ENV === "production" ? "[CONFIGURED]" : (isConfigured ? rawSupabaseUrl : "mock://local-environment"),
       latencyMs,
       checks: {
         configured: isConfigured,

@@ -17,6 +17,9 @@ const ROLE_LABELS: Record<RoleCode, string> = {
   hr: "HR Admin Focus",
   payroll_admin: "Payroll Admin Focus",
   system_admin: "System Admin Focus",
+  statutory_admin: "Statutory Admin Focus",
+  finance_admin: "Finance Admin Focus",
+  it_admin: "IT Admin Focus",
 };
 
 interface HeaderProps {
@@ -84,7 +87,11 @@ export function Header({
               title="Workspace Focus Filter (Union permissions active across all assigned roles)"
             >
               {assignedRoles.map((role) => (
-                <option key={role} value={role}>
+                <option
+                  key={role}
+                  value={role}
+                  title={`Filter workspace view to ${ROLE_LABELS[role]} focus (Union permissions remain active)`}
+                >
                   {ROLE_LABELS[role]}
                 </option>
               ))}

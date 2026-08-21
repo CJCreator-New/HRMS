@@ -98,8 +98,9 @@ export async function createEmployeeAction(formData: FormData) {
     }
 
     return { success: true, employee: emp };
-  } catch (err: any) {
-    return { error: err.message || "An error occurred during employee creation." };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "An error occurred during employee creation.";
+    return { error: message };
   }
 }
 
@@ -115,14 +116,15 @@ export async function getEmployeesAction(opts: EmployeeQueryOptions = {}) {
   try {
     const { employees, total } = await queryEmployees(opts);
     return opts.page && opts.page > 0 ? { employees, total } : { employees };
-  } catch (e: any) {
-    return { error: e?.message || "Failed to load employees." };
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Failed to load employees.";
+    return { error: message };
   }
 }
 
 export async function importEmployeesAction(
   rows: Array<{ code: string; name: string; email: string; doj?: string }>
-): Promise<BatchCommitResult<any>> {
+): Promise<BatchCommitResult<{ code: string; name: string; email: string; doj?: string }>> {
   const csrfError = await validateRequestOrigin();
   if (csrfError) {
     return {
@@ -163,7 +165,7 @@ export async function importEmployeesAction(
   let imported = 0;
   let skipped = 0;
   const errors: string[] = [];
-  const rowResults: BatchCommitResult["rowResults"] = [];
+  const rowResults: NonNullable<BatchCommitResult<{ code: string; name: string; email: string; doj?: string }>["rowResults"]> = [];
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];

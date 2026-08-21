@@ -9,7 +9,16 @@ import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 import { signMockCookieValue } from "@/lib/auth/mock-cookie";
 import { E2E_MOCK_ALLOWED_ROUTES } from "@/lib/services/mock-rbac";
 
-export async function loginAction(formData: FormData) {
+export interface LoginActionResult {
+  success?: boolean;
+  error?: string;
+  errorCode?: string;
+  status?: number;
+  rawError?: unknown;
+  diagnostic?: unknown;
+}
+
+export async function loginAction(formData: FormData): Promise<LoginActionResult> {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { error: csrfError.error };
 
@@ -22,11 +31,13 @@ export async function loginAction(formData: FormData) {
   }
 
   // Hard-coded invalid credentials bypass (E2E negative test only)
-  if (email.includes("invalid") || password.includes("Wrong")) {
+  if ((process.env.NODE_ENV === "test" || process.env.NEXT_PUBLIC_MOCK_AUTH === "true") && (email.includes("invalid") || password.includes("Wrong"))) {
     return { error: "Invalid login credentials" };
   }
 
-  const isKnownMockPersona = email in E2E_MOCK_ALLOWED_ROUTES || email.endsWith("@company.com");
+  const isKnownMockPersona = (process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_MOCK_AUTH === "true") &&
+    (email in E2E_MOCK_ALLOWED_ROUTES || email.endsWith("@company.com"));
+
   const isMockAuth =
     process.env.NEXT_PUBLIC_MOCK_AUTH === "true" ||
     isKnownMockPersona ||
@@ -72,22 +83,24 @@ export async function loginAction(formData: FormData) {
     const { data, error } = rawSupabaseResponse;
 
     // Detailed diagnostic logging of the raw Supabase response object
-    console.log("[Supabase Auth Raw Response Object]:", {
+    const authErr = error as { name?: string; message?: string; status?: number; code?: string; cause?: unknown; details?: unknown; hint?: string; stack?: string } | null;
+
+    console.info("[Auth Server Action: Handshake Response]", {
       timestamp: new Date().toISOString(),
       supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || "NOT_SET",
       email,
       hasSession: Boolean(data?.session),
       user: data?.user ? { id: data.user.id, email: data.user.email, app_metadata: data.user.app_metadata } : null,
-      error: error
+      error: authErr
         ? {
-            name: error.name,
-            message: error.message,
-            status: error.status,
-            code: (error as any)?.code,
-            cause: (error as any)?.cause,
-            details: (error as any)?.details,
-            hint: (error as any)?.hint,
-            stack: error.stack,
+            name: authErr.name,
+            message: authErr.message,
+            status: authErr.status,
+            code: authErr.code,
+            cause: authErr.cause,
+            details: authErr.details,
+            hint: authErr.hint,
+            stack: authErr.stack,
           }
         : null,
       rawErrorObject: error,
@@ -95,17 +108,20 @@ export async function loginAction(formData: FormData) {
 
     if (error) {
       const errMsg = error.message?.toLowerCase() || "";
-      const errCode = (error as any)?.code || (error as any)?.name || "auth_error";
+      const errCode = authErr?.code || authErr?.name || "auth_error";
 
-      // If user not found in Supabase Auth or connection issue, fallback to mock demo authentication
+      const isExplicitMock = process.env.NEXT_PUBLIC_MOCK_AUTH === "true";
+
+      // If user not found in Supabase Auth or connection issue, fallback to mock demo authentication ONLY if explicit mock mode is enabled
       if (
-        errMsg.includes("user not found") ||
-        errMsg.includes("email not found") ||
-        errMsg.includes("invalid login credentials") ||
-        errCode === "user_not_found" ||
-        errCode === "invalid_credentials" ||
-        errMsg.includes("fetch failed") ||
-        errMsg.includes("failed to fetch")
+        isExplicitMock &&
+        (errMsg.includes("user not found") ||
+          errMsg.includes("email not found") ||
+          errMsg.includes("invalid login credentials") ||
+          errCode === "user_not_found" ||
+          errCode === "invalid_credentials" ||
+          errMsg.includes("fetch failed") ||
+          errMsg.includes("failed to fetch"))
       ) {
         const signedValue = await signMockCookieValue(email);
         const cookieStore = await cookies();
@@ -136,7 +152,7 @@ export async function loginAction(formData: FormData) {
             message: error.message,
             status: error.status,
             name: error.name,
-            code: (error as any)?.code,
+            code: authErr?.code,
           },
         };
       }
@@ -149,9 +165,9 @@ export async function loginAction(formData: FormData) {
           message: error.message,
           status: error.status,
           name: error.name,
-          code: (error as any)?.code,
-          cause: (error as any)?.cause,
-          details: (error as any)?.details,
+          code: authErr?.code,
+          cause: authErr?.cause,
+          details: authErr?.details,
         },
       };
     }
@@ -172,32 +188,40 @@ export async function loginAction(formData: FormData) {
     await resetLoginRateLimit(email.toLowerCase());
 
     return { success: true };
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errorObj = err instanceof Error ? err : null;
     console.error("[Supabase Auth Exception / Network / CORS Rejection]:", {
       timestamp: new Date().toISOString(),
-      name: err?.name,
-      message: err?.message,
-      code: err?.code,
-      cause: err?.cause,
-      stack: err?.stack,
+      name: errorObj?.name,
+      message: errorObj?.message || String(err),
+      stack: errorObj?.stack,
       rawErrorObject: err,
     });
 
-    // If Supabase client fails to connect, fallback to signed session token
+    // In production, never fall back to mock auth on connection failure
+    if (process.env.NODE_ENV === "production") {
+      return {
+        error: "Authentication service is temporarily unavailable. Please try again later.",
+        errorCode: "AUTH_SERVICE_UNAVAILABLE",
+        status: 503,
+      };
+    }
+
+    // In development / test, fallback to signed session token
     const signedValue = await signMockCookieValue(email);
     const cookieStore = await cookies();
     cookieStore.set("sb-access-token", signedValue, {
       path: "/",
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: false,
       maxAge: sessionMaxAge,
     });
     return {
       success: true,
       diagnostic: {
         mode: "mock_fallback_on_exception",
-        exception: err?.message || String(err),
+        exception: errorObj?.message || String(err),
       },
     };
   }
@@ -241,8 +265,9 @@ export async function requestPasswordResetAction(emailInput: string) {
       success: true,
       message: `Password reset instructions have been sent to ${email}.`,
     };
-  } catch (err: any) {
-    return { error: err?.message || "Failed to dispatch password reset email." };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to dispatch password reset email.";
+    return { error: message };
   }
 }
 

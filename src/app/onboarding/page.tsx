@@ -72,7 +72,7 @@ export default function DirectOnboardingPage() {
 
     setLoading(false);
 
-    if (res?.error) {
+    if ("error" in res && res.error) {
       setErrorMsg(res.error);
     } else {
       setSuccessMsg(

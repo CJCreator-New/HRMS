@@ -67,7 +67,16 @@ export async function getLeaveDashboard(userInfo: CurrentUserInfo): Promise<Leav
 
     return {
       employeeId: userInfo.employeeId,
-      allocations: (allocations || []).map((a: any) => ({
+      allocations: ((allocations || []) as Array<{
+        leave_types?: { code?: string | null; name?: string | null } | null;
+        leave_type_code?: string | null;
+        leave_type_name?: string | null;
+        allocated_days?: number | null;
+        used_days?: number | null;
+        pending_days?: number | null;
+        balance_days?: number | null;
+        is_sandwich_enabled?: boolean | null;
+      }>).map((a) => ({
         type_code: a.leave_types?.code || a.leave_type_code || "",
         type_name: a.leave_types?.name || a.leave_type_name || "",
         allocated: a.allocated_days || 0,
@@ -76,7 +85,21 @@ export async function getLeaveDashboard(userInfo: CurrentUserInfo): Promise<Leav
         balance: a.balance_days || 0,
         is_sandwich_enabled: a.is_sandwich_enabled ?? false,
       })),
-      requests: (requests || []).map((r: any) => ({
+      requests: ((requests || []) as Array<{
+        id: string;
+        employee_id: string;
+        full_name?: string | null;
+        leave_type_code?: string | null;
+        leave_types?: { name?: string | null } | null;
+        leave_type_name?: string | null;
+        start_date: string;
+        end_date: string;
+        duration_type: LeaveRequestView["duration_type"];
+        total_days: number;
+        reason: string;
+        status: LeaveRequestView["status"];
+        employees?: { full_name?: string | null } | null;
+      }>).map((r) => ({
         id: r.id,
         employee_id: r.employee_id,
         employee_name: r.full_name || "Me",

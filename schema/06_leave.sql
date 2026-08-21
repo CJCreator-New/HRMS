@@ -118,8 +118,14 @@ declare
   v_sandwich boolean;
   v_curr date := p_start_date;
   v_days numeric := 0;
-  v_is_single_day boolean := (p_start_date = p_end_date);
-begin
+  -- Guard against invalid or excessively large date ranges (> 365 days)
+  if p_end_date < p_start_date then
+    raise exception 'End date cannot precede start date in calculate_leave_days';
+  end if;
+  if p_end_date - p_start_date > 365 then
+    raise exception 'Leave duration cannot exceed 365 days in calculate_leave_days';
+  end if;
+
   select is_sandwich_enabled into v_sandwich from leave_types where id = p_leave_type_id;
 
   -- Single-day half-day leave: return 0.5 directly
@@ -301,6 +307,14 @@ create policy comp_off_read on comp_off_grants for select
   using (employee_id = auth_employee_id() or has_permission('leave.view', employee_id));
 create policy comp_off_insert on comp_off_grants for insert
   with check (employee_id = auth_employee_id());
+
+-- Performance Indexes
+create index if not exists idx_leave_requests_emp_status_dates
+  on leave_requests (employee_id, status, start_date, end_date);
+create index if not exists idx_leave_requests_leave_type_id
+  on leave_requests (leave_type_id);
+create index if not exists idx_leave_ledger_emp_created
+  on leave_ledger (employee_id, created_at desc);
 
 -- Seed Standard Leave Types Master
 insert into leave_types (code, name, is_sandwich_enabled, requires_attachment, allow_negative_balance) values

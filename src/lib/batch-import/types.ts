@@ -10,8 +10,8 @@ export interface BatchColumnDefinition {
   enumValues?: string[];
   pattern?: RegExp;
   patternError?: string;
-  customValidator?: (value: any, row: Record<string, any>) => string | null;
-  transform?: (value: any) => any;
+  customValidator?: (value: unknown, row: Record<string, unknown>) => string | null;
+  transform?: (value: unknown) => unknown;
 }
 
 export interface BatchSchemaDefinition<T = any> {
@@ -20,7 +20,7 @@ export interface BatchSchemaDefinition<T = any> {
   description?: string;
   templateFileName: string;
   columns: BatchColumnDefinition[];
-  sampleRows?: Record<string, any>[];
+  sampleRows?: Record<string, unknown>[];
   notes?: string[];
   maxRows?: number;
   rowValidator?: (row: T, rowIndex: number, allRows: T[]) => string | null;
@@ -30,7 +30,7 @@ export interface BatchRowResult<T = any> {
   rowNumber: number;
   status: "valid" | "invalid";
   data: T;
-  raw: Record<string, any>;
+  raw: Record<string, unknown>;
   errors: string[];
 }
 

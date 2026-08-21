@@ -37,17 +37,22 @@ export default function ShortPermissionsPage() {
     setLoading(true);
     setError("");
     const res = await getShortPermissionsAction();
-    if (typeof (res as any).monthlyUsedMinutes === "number") {
-      setMonthlyUsedMinutes((res as any).monthlyUsedMinutes);
+    if ("error" in res && typeof res.error === "string") {
+      setError(res.error);
+      setLoading(false);
+      return;
     }
-    const mapped: PermissionRequest[] = (res.requests || []).map((r: any) => ({
+    if (typeof res.monthlyUsedMinutes === "number") {
+      setMonthlyUsedMinutes(res.monthlyUsedMinutes);
+    }
+    const mapped: PermissionRequest[] = (res.requests || []).map((r: { id: string; permission_date?: string; date?: string; start_time?: string; end_time?: string; duration_minutes?: number; reason?: string; status?: "pending" | "approved" | "rejected" | string }) => ({
       id: r.id,
       date: r.permission_date || r.date || "",
       start_time: r.start_time || "",
       end_time: r.end_time || "",
       duration_minutes: r.duration_minutes || 0,
       reason: r.reason || "",
-      status: r.status || "pending",
+      status: (r.status as PermissionRequest["status"]) || "pending",
     }));
     setRequests(mapped);
     setLoading(false);

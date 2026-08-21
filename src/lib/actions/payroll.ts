@@ -320,41 +320,74 @@ export async function executeBulkPayrollRunAction(periodId: string) {
     ]);
 
     // Group batch results by employee_id for O(1) lookup
-    const attMap = new Map<string, any[]>();
-    const safeAtts = Array.isArray(allAttRecords) ? allAttRecords : (allAttRecords ? [allAttRecords] : []);
+    type AttRecord = { employee_id: string; status?: string | null };
+    type LeaveReq = { employee_id: string; total_days?: number | null };
+    type SalStruct = {
+      employee_id?: string | null;
+      id?: string;
+      monthly_ctc?: number | null;
+      annual_ctc?: number | null;
+      [key: string]: unknown;
+    };
+    type StatProfile = {
+      employee_id?: string | null;
+      id?: string;
+      pt_state?: string | null;
+      tax_regime?: string | null;
+      pf_applicable?: boolean | null;
+      is_pf_eligible?: boolean | null;
+      esi_applicable?: boolean | null;
+      is_esi_eligible?: boolean | null;
+      [key: string]: unknown;
+    };
+
+    const attMap = new Map<string, AttRecord[]>();
+    const safeAtts = (Array.isArray(allAttRecords) ? allAttRecords : (allAttRecords ? [allAttRecords] : [])) as AttRecord[];
     for (const att of safeAtts) {
       if (!attMap.has(att.employee_id)) attMap.set(att.employee_id, []);
       attMap.get(att.employee_id)!.push(att);
     }
 
-    const leaveMap = new Map<string, any[]>();
-    const safeLeaves = Array.isArray(allLeaveReqs) ? allLeaveReqs : (allLeaveReqs ? [allLeaveReqs] : []);
+    const leaveMap = new Map<string, LeaveReq[]>();
+    const safeLeaves = (Array.isArray(allLeaveReqs) ? allLeaveReqs : (allLeaveReqs ? [allLeaveReqs] : [])) as LeaveReq[];
     for (const req of safeLeaves) {
       if (!leaveMap.has(req.employee_id)) leaveMap.set(req.employee_id, []);
       leaveMap.get(req.employee_id)!.push(req);
     }
 
-    const salaryMap = new Map<string, any>();
-    const safeSals = Array.isArray(allSalStructs) ? allSalStructs : (allSalStructs ? [allSalStructs] : []);
+    const salaryMap = new Map<string, SalStruct>();
+    const safeSals = (Array.isArray(allSalStructs) ? allSalStructs : (allSalStructs ? [allSalStructs] : [])) as SalStruct[];
     for (const sal of safeSals) {
-      salaryMap.set(sal.employee_id || (sal as any).id, sal);
+      salaryMap.set(sal.employee_id || sal.id || "", sal);
     }
 
-    const statMap = new Map<string, any>();
-    const safeStats = Array.isArray(allStatProfiles) ? allStatProfiles : (allStatProfiles ? [allStatProfiles] : []);
+    const statMap = new Map<string, StatProfile>();
+    const safeStats = (Array.isArray(allStatProfiles) ? allStatProfiles : (allStatProfiles ? [allStatProfiles] : [])) as StatProfile[];
     for (const stat of safeStats) {
-      statMap.set(stat.employee_id || (stat as any).id, stat);
+      statMap.set(stat.employee_id || stat.id || "", stat);
     }
 
-    const payslipPayloads: any[] = [];
+    interface PayslipPayload {
+      payroll_revision_id: string;
+      employee_id: string;
+      year: number;
+      month: number;
+      payable_units: number;
+      lop_units: number;
+      gross_earnings: number;
+      total_deductions: number;
+      net_pay: number;
+      is_published: boolean;
+    }
+    const payslipsToUpsert: PayslipPayload[] = [];
 
     for (const emp of eligibleList) {
       const attRecords = attMap.get(emp.id) || [];
-      const workedCount = attRecords.filter((r: any) => r.status === "present" || r.status === "extra_work").length;
-      const halfDayCount = attRecords.filter((r: any) => r.status === "half_day").length;
+      const workedCount = attRecords.filter((r) => r.status === "present" || r.status === "extra_work").length;
+      const halfDayCount = attRecords.filter((r) => r.status === "half_day").length;
 
       const leaveReqs = leaveMap.get(emp.id) || [];
-      const paidLeaveDays = leaveReqs.reduce((acc: number, l: any) => acc + Number(l.total_days || 0), 0);
+      const paidLeaveDays = leaveReqs.reduce((acc: number, l) => acc + Number(l.total_days || 0), 0);
 
       const salStruct = salaryMap.get(emp.id) || (safeSals.length === 1 ? safeSals[0] : undefined);
       const statProfile = statMap.get(emp.id) || (safeStats.length === 1 ? safeStats[0] : undefined);
@@ -376,7 +409,7 @@ export async function executeBulkPayrollRunAction(periodId: string) {
         paidLeaveDays,
         monthlyCtc,
         ptState: statProfile?.pt_state || "Karnataka",
-        taxRegime: statProfile?.tax_regime || "new_regime",
+        taxRegime: (statProfile?.tax_regime as "new_regime" | "old_regime") || "new_regime",
         pfApplicable: statProfile?.pf_applicable ?? statProfile?.is_pf_eligible ?? true,
         esiApplicable: statProfile?.esi_applicable ?? statProfile?.is_esi_eligible ?? false,
       });
@@ -385,21 +418,28 @@ export async function executeBulkPayrollRunAction(periodId: string) {
       totalDeductionsRun += run.totalDeduction;
       totalNetRun += run.netPay;
 
-      await supabase.from("payslips").upsert(
-        {
-          payroll_revision_id: revision.id,
-          employee_id: emp.id,
-          year: period.year,
-          month: period.month,
-          payable_units: run.payableUnits,
-          lop_units: run.lopUnits,
-          gross_earnings: run.grossMonthly,
-          total_deductions: run.totalDeduction,
-          net_pay: run.netPay,
-          is_published: false,
-        },
-        { onConflict: "payroll_revision_id,employee_id" }
+      payslipsToUpsert.push({
+        payroll_revision_id: revision.id,
+        employee_id: emp.id,
+        year: period.year,
+        month: period.month,
+        payable_units: run.payableUnits,
+        lop_units: run.lopUnits,
+        gross_earnings: run.grossMonthly,
+        total_deductions: run.totalDeduction,
+        net_pay: run.netPay,
+        is_published: false,
+      });
+    }
+
+    if (payslipsToUpsert.length > 0) {
+      const results = await Promise.all(
+        payslipsToUpsert.map((p) =>
+          supabase.from("payslips").upsert(p, { onConflict: "payroll_revision_id,employee_id" })
+        )
       );
+      const firstErr = results.find((r) => r.error)?.error;
+      if (firstErr) return { error: firstErr.message };
     }
   }
 

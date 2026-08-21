@@ -17,17 +17,27 @@ export async function getNotificationsAction() {
 
   if (!emp) return { notifications: [], unread: 0 };
 
-  const { data } = await supabase
-    .from("inbox_notifications")
-    .select("*")
-    .eq("recipient_id", emp.id)
-    .order("created_at", { ascending: false })
-    .limit(20);
+  const [{ data: notifications }, { count: unreadCount }] = await Promise.all([
+    supabase
+      .from("inbox_notifications")
+      .select("*")
+      .eq("recipient_id", emp.id)
+      .order("created_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("inbox_notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("recipient_id", emp.id)
+      .eq("is_read", false),
+  ]);
 
-  const notifications = data || [];
-  const unread = notifications.filter((n: any) => !n.is_read).length;
+  const safeNotifications = Array.isArray(notifications) ? notifications : notifications ? [notifications] : [];
+  const unread =
+    typeof unreadCount === "number"
+      ? unreadCount
+      : safeNotifications.filter((n: { is_read?: boolean | null }) => !n.is_read).length;
 
-  return { notifications, unread };
+  return { notifications: safeNotifications, unread };
 }
 
 export async function markNotificationReadAction(notificationId: string) {
@@ -96,7 +106,8 @@ export async function createNotificationAction(
     });
     if (error) return { error: error.message };
     return { success: true };
-  } catch (e: any) {
-    return { error: e?.message || "Failed to create notification" };
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Failed to create notification";
+    return { error: message };
   }
 }

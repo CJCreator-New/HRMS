@@ -39,7 +39,7 @@ export default function DepartmentsPage() {
   const loadDepts = async () => {
     setLoading(true);
     const res = await getDepartmentsAction();
-    const mapped: Department[] = (res.departments || []).map((d: any) => ({
+    const mapped: Department[] = (res.departments || []).map((d: { id: string; name: string; active?: boolean; employee_count?: number }) => ({
       id: d.id,
       name: d.name,
       active: d.active ?? true,

@@ -29,6 +29,7 @@ function buildCspHeader(nonce: string): string {
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
+    ...(process.env.NODE_ENV === "production" ? ["upgrade-insecure-requests"] : []),
   ];
   return directives.join("; ");
 }
@@ -40,11 +41,13 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  // Generate per-request nonce and attach CSP header
+  // Generate per-request nonce and attach CSP and security headers
   const nonce = generateNonce();
   response.headers.set("Content-Security-Policy", buildCspHeader(nonce));
-  // Expose nonce to server components via request header
   response.headers.set("X-Nonce", nonce);
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
 
   const pathname = request.nextUrl.pathname;
 
@@ -122,7 +125,7 @@ export async function middleware(request: NextRequest) {
   if (user && routeGate && routeGate.requiredPermissions.length > 0) {
     const { data: employee } = await supabase
       .from("employees")
-      .select("id")
+      .select("id, employee_roles(roles(code))")
       .eq("auth_user_id", user.id)
       .single();
 
@@ -131,13 +134,16 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(forbiddenUrl);
     }
 
-    // Query employee roles
-    const { data: empRoles } = await supabase
-      .from("employee_roles")
-      .select("roles!inner(code)")
-      .eq("employee_id", employee.id);
-
-    const userRoles = empRoles?.map((r: any) => r.roles.code) || ["employee"];
+    // Extract roles from joined relation
+    let userRoles: string[] = [];
+    if (Array.isArray(employee.employee_roles)) {
+      userRoles = (employee.employee_roles as Array<{ roles?: { code?: string } | Array<{ code?: string }> | null }>)
+        .map((r) => (Array.isArray(r.roles) ? r.roles[0]?.code : r.roles?.code))
+        .filter((c): c is string => Boolean(c));
+    }
+    if (userRoles.length === 0) {
+      userRoles = ["employee"];
+    }
 
     // System Admin bypass
     if (userRoles.includes("system_admin")) {

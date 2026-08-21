@@ -131,8 +131,7 @@ src/
     │   └── formatters.ts         # Date/currency formatters
     │
     ├── roleContext.tsx            # Role context provider (client)
-    ├── security.ts               # Security utilities
-    └── sanitize.ts               # Input sanitization
+    └── security.ts               # Security & input sanitization utilities
 ```
 
 ---

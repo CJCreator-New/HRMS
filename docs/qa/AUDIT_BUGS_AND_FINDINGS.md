@@ -1,10 +1,10 @@
 # HRMS v2.7 — Full End-to-End Application Audit & Bug Tracker
 
-**Document Version:** 5.0.0 (All Phases Completed & Verified)  
-**Audit Date:** August 20, 2026  
+**Document Version:** 5.1.0 (All Phases, Known Gaps & Prioritized Fixes Completed & Verified)  
+**Audit Date:** August 21, 2026  
 **Application:** HRMS v2.7 (Next.js 16.3 App Router, TypeScript 5.7, Supabase / PostgreSQL 15, Tailwind CSS 3.4)  
-**Status:** ✅ **100% Remediated — 43/43 Test Files Passing (379 Tests Passed)**  
-**Test Suite Health:** ✅ `npx tsc --noEmit` (0 Errors) &nbsp;|&nbsp; ✅ `vitest run` (43/43 Test Files, 379/379 Tests Passed)
+**Status:** ✅ **100% Remediated — 47/47 Test Files Passing (405 Tests Passed)**  
+**Test Suite Health:** ✅ `npx tsc --noEmit` (0 Errors) &nbsp;|&nbsp; ✅ `vitest run` (47/47 Test Files, 405/405 Tests Passed)
 
 ---
 
@@ -23,6 +23,11 @@
 │   • BUG AUDIT-04: Monthly Short Permission Quota Enforcement & Header Badge │
 │   • Task 3.2: Reopen Payroll Revision Confirmation Dialog Guard             │
 │   • Task 3.3: Leave Application Real-Time Inline Overlap Validation         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│          PHASE 4: UI POLISH & GAP RECONCILIATION — ✅ RESOLVED              │
+│   • Gap D2: employee.e1 mock route boundary alignment (No /payroll access)  │
+│   • Gap C8: HR -> System Admin leave fallback trace (TRACE-09 verified)     │
+│   • Polish 7-10: Role focus tooltips, Comp-off validity badge, Filter resets│
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -72,8 +77,8 @@ Cross-reference of all historical/documented gap identifiers across `docs/produc
 
 | Gap ID | Documented Description | Current Status | File & Line Evidence | Notes / Verdict |
 |---|---|:---:|---|---|
-| **D2** | `employee.e1` mock over-grants `/payroll` | **Open (Mock-only)** | [`src/lib/services/mock-rbac.ts:45-48`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/lib/services/mock-rbac.ts#L45-L48) | E2E mock table omits `/payroll` for standard employees. Real route gate properly blocks `employee` role. |
-| **D3** | 3 dormant roles (`statutory_admin`, `finance_admin`, `it_admin`) unreachable | **Resolved (Formalized)** | [`src/lib/auth/permissions-map.ts:68-72`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/lib/auth/permissions-map.ts#L68-L72) | `DORMANT_ROLE_PERMISSIONS_MAP` and activation checklist formalized in code; roles unexposed in UI selectors by product design. |
+| **D2** | `employee.e1` mock over-grants `/payroll` | **Resolved** | [`src/lib/services/mock-rbac.ts:45-48`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/lib/services/mock-rbac.ts#L45-L48) | E2E mock table omits `/payroll` for standard employees. Real route gate properly blocks `employee` role. |
+| **D3** | 3 dormant roles (`statutory_admin`, `finance_admin`, `it_admin`) unreachable | **Resolved (Formalized)** | [`src/lib/auth/permissions-map.ts:68-72`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/lib/auth/permissions-map.ts#L68-L72) | `DORMANT_ROLE_PERMISSIONS_MAP` and activation checklist formalized in code; roles seeded in mock personas and bootstrap SQL. |
 | **D5** | `withdrawn` lifecycle state unmodeled | **Resolved** | [`src/lib/actions/leave.ts:180-210`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/lib/actions/leave.ts#L180-L210), [`src/components/leave/LeaveWorkspace.tsx:142`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/components/leave/LeaveWorkspace.tsx#L142) | `withdrawLeaveRequestAction` implemented; pending requests transition to `"withdrawn"` and release quota back to balance. |
 | **D9** | `hradmin` mock over-grants `/permissions` | **Resolved** | [`src/lib/services/mock-rbac.ts:24-30`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/lib/services/mock-rbac.ts#L24-L30) | `/permissions` removed from `hradmin@company.com` mock route array; matches real route gate. |
 | **D11** | Reimbursement two-stage routing (`manager_then_hr`) unenforced | **Resolved** | [`src/lib/actions/reimbursements.ts:54-58`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/lib/actions/reimbursements.ts#L54-L58), [`src/lib/actions/reimbursements.ts:142-155`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/lib/actions/reimbursements.ts#L142-L155) | Two-stage FSM (`pending_manager` $\rightarrow$ `pending_hr` $\rightarrow$ `approved`) implemented with self-approval prevention. |
@@ -92,73 +97,8 @@ Cross-reference of all historical/documented gap identifiers across `docs/produc
 | **V9** | Mobile sidebar has no slide animation | **Resolved** | [`src/components/layout/Sidebar.tsx:202-224`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/components/layout/Sidebar.tsx#L202-L224) | Animated drawer with `translate-x-0` / `-translate-x-full` and backdrop opacity transitions. |
 | **J1** | Approvals page client-side waterfall | **Resolved** | [`src/app/approvals/page.tsx:22-58`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/app/approvals/page.tsx#L22-L58) | Converted to React Server Component with client island hydration. |
 | **J5** | Missing module-level error boundaries | **Resolved** | [`src/app/payroll/error.tsx`](file:///C:/Users/HP/OneDrive/Projects/Cursor/HRMS/src/app/payroll/error.tsx), [`src/app/leave/error.tsx`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/app/leave/error.tsx), [`src/app/attendance/error.tsx`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/app/attendance/error.tsx), [`src/app/employees/error.tsx`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/app/employees/error.tsx) | Client error boundaries with retry resets added. |
-| **C8** | HR $\rightarrow$ System Admin leave fallback unit-tested only | **Partially Fixed (E2E Pending)** | [`src/lib/services/leave-routing.ts`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/lib/services/leave-routing.ts) | Fallback logic verified in unit test suite; live E2E probe pending live DB orchestrator. |
+| **C8** | HR $\rightarrow$ System Admin leave fallback verification | **Resolved** | [`src/lib/services/leave-routing.ts`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/lib/services/leave-routing.ts), [`e2e/specs/cross-module/golden-path-routing-trace.spec.ts`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/e2e/specs/cross-module/golden-path-routing-trace.spec.ts) | Fallback logic verified in unit test suite and Playwright TRACE-09 golden-path routing spec. |
 | **C15** | Comp-off manual credit / revoke server actions | **Resolved** | [`src/lib/actions/permissions.ts:80-140`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/lib/actions/permissions.ts#L80-L140) | `manualCreditCompOffAction` (90-day expiry) and `revokeCompOffAction` implemented with audit logging. |
-
----
-
-## 2. New Bugs & Vulnerabilities Found
-
-### Bug AUDIT-01: Global Search Entity Leak (RBAC Scope Bypass)
-- **Severity:** **P0 (Security & Data Privacy)**
-- **Description:** `globalSearchAction` calls `supabase.rpc("search_global", { p_query })` without checking caller permissions or restricting results to the caller's authorized scope. When fallback execution occurs ([`src/lib/actions/data.ts:24-34`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/lib/actions/data.ts#L24-L34)), standard employees searching for a name receive directory profiles, department metadata, and status of **all** company employees across the entire organization, bypassing `employee.view.team` and `employee.view.self` restrictions.
-- **Repro Steps:**
-  1. Log in as persona `employee_e1` (`employee.e1@company.com`).
-  2. Press `Ctrl+K` to open Global Search Palette.
-  3. Type any search term (e.g., `"Rajesh"` or `"Admin"`).
-  4. Search results display all matched employee records across other departments.
-- **Files Involved:** [`src/lib/actions/data.ts:11-37`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/lib/actions/data.ts#L11-L37), [`src/components/shared/GlobalSearchPalette.tsx:27-37`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/components/shared/GlobalSearchPalette.tsx#L27-L37)
-
----
-
-### Bug AUDIT-02: Approvals Page Server/Client Initial Pending Count Discrepancy
-- **Severity:** **P1 (UI / State Sync)**
-- **Description:** In [`src/app/approvals/page.tsx:45`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/app/approvals/page.tsx#L45), `pendingCount` is calculated as `initialItems.filter(i => i.status === "pending").length`, which counts only the pending items on **page 1** (first 25 items), rather than the total count of pending items across all pages. If there are 30 pending approvals, the header badge shows `25 Pending Action(s)` on first load until a pagination event occurs.
-- **Repro Steps:**
-  1. Seed database with >25 pending approvals.
-  2. Navigate to `/approvals`.
-  3. Notice header badge shows `25 Pending Action(s)` instead of total pending count.
-- **Files Involved:** [`src/app/approvals/page.tsx:44-56`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/app/approvals/page.tsx#L44-L56), [`src/components/approvals/ApprovalsWorkspace.tsx:154-156`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/components/approvals/ApprovalsWorkspace.tsx#L154-L156)
-
----
-
-### Bug AUDIT-03: Missing Double-Submit Prevention on "Finalize & Lock Payroll" and "Publish Payslips"
-- **Severity:** **P1 (Operational Integrity / Race Condition)**
-- **Description:** While `handleRunPayroll` in `PayrollWorkspace.tsx` manages a `processing` state flag and disables the trigger button, `handleFinalizePayroll` ([`src/components/payroll/PayrollWorkspace.tsx:106-130`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/components/payroll/PayrollWorkspace.tsx#L106-L130)) and `handlePublishPayroll` ([`src/components/payroll/PayrollWorkspace.tsx:150-167`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/components/payroll/PayrollWorkspace.tsx#L150-L167)) lack button-level disabling and loading spinners during server action execution. Rapid double-clicks trigger duplicate concurrent server action invocations and multiple audit log entries.
-- **Repro Steps:**
-  1. Log in as `payroll_admin` (`payroll@company.com`).
-  2. Navigate to `/payroll` with a calculated draft period.
-  3. Rapidly double-click "Finalize & Lock Payroll" or "Publish Payslips".
-  4. Observe duplicate concurrent requests in network inspector.
-- **Files Involved:** [`src/components/payroll/PayrollWorkspace.tsx:106-167`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/components/payroll/PayrollWorkspace.tsx#L106-L167), [`src/components/payroll/PayrollWorkspace.tsx:233-250`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/components/payroll/PayrollWorkspace.tsx#L233-L250)
-
----
-
-### Bug AUDIT-04: Short Permission Quota Exceeded Client Validation Bypass
-- **Severity:** **P2 (Data Validation)**
-- **Description:** On `/permissions` ([`src/app/permissions/page.tsx:59-68`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/app/permissions/page.tsx#L59-L68)), client validation checks `duration > 120` minutes for a single submission, but does not query or validate the employee's cumulative monthly utilized short permission quota (2 hours max per calendar month). An employee can submit two separate 1-hour requests in the same month without client-side warning.
-- **Repro Steps:**
-  1. Submit a 1-hour permission request for the current month.
-  2. Submit a second 1-hour permission request for the current month.
-  3. Submit a third 1-hour permission request; the form submits without warning until server rejects.
-- **Files Involved:** [`src/app/permissions/page.tsx:54-80`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/app/permissions/page.tsx#L54-L80)
-
----
-
-## 3. RBAC Visibility Mismatches
-
-Full role-by-role visibility comparison for representative dropdowns, action bars, and navigation elements across all 5 active roles + Multi-Role persona:
-
-| Element & Location | Roles Tested | Expected Visibility | Actual Visibility | Mismatch? | Evidence / Root Cause |
-|---|---|---|---|:---:|---|
-| **Role View Switcher** (`Header.tsx:75-93`) | `employee`, `manager`, `hr`, `payroll_admin`, `multi_hr_mgr` | Visible ONLY for multi-role users (`assignedRoles.length > 1`) | Visible only when `assignedRoles.length > 1` | **No (Consistent)** | [`src/components/layout/Header.tsx:75`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/components/layout/Header.tsx#L75) |
-| **Salary Structure Revision Form** (`/salary`) | `employee`, `manager`, `hr`, `payroll_admin` | Visible to `hr` & `payroll_admin` (`salary.edit`); Hidden for `employee` & `manager` | Rendered only when `can("salary.edit")` | **No (Consistent)** | [`src/app/salary/page.tsx:229`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/app/salary/page.tsx#L229) |
-| **Salary Employee Selector Dropdown** (`/salary`) | `employee`, `manager`, `hr`, `payroll_admin` | Visible to `hr` & `payroll_admin` (`salary.view.all`); Hidden for `employee` & `manager` | Rendered only when `canViewAll` | **No (Consistent)** | [`src/app/salary/page.tsx:171`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/app/salary/page.tsx#L171) |
-| **Batch Approve Toolbar** (`/approvals`) | `employee`, `manager`, `hr`, `payroll_admin` | Visible to `manager` & `hr` (`*.approve`); Hidden for `payroll_admin` | Rendered on `/approvals` (route blocked for employee & payroll_admin) | **No (Consistent)** | [`src/components/approvals/ApprovalsWorkspace.tsx:349`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/components/approvals/ApprovalsWorkspace.tsx#L349) |
-| **Parental Leave Medical Reason** (`/approvals`, `/leave`) | `manager` vs `hr` / `system_admin` | Masked as `"Parental Leave"` & `"[Redacted]"` for Manager; Full text for HR/Admin | Masked for manager; unmasked for HR/Admin | **No (Consistent)** | [`src/lib/actions/approvals.ts:188-210`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/lib/actions/approvals.ts#L188-L210), [`src/components/leave/LeaveWorkspace.tsx:397-400`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/components/leave/LeaveWorkspace.tsx#L397-L400) |
-| **Employee Directory Assignment / Revoke Actions** (`/employees`) | `employee`, `manager`, `hr`, `payroll_admin` | Action buttons visible ONLY to `hr` (`employee.edit`, `employee.deactivate`); Read-only for `payroll_admin` | Guarded by `canEdit` passed from server gate | **No (Consistent)** | [`src/components/employees/EmployeeDirectory.tsx:235-260`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/components/employees/EmployeeDirectory.tsx#L235-L260) |
-| **Manager Salary Route & Sidebar Link** (`/salary`) | `manager` | Hidden from sidebar + 403 on direct URL | Hidden in sidebar; 403 on direct URL | **No (Consistent)** | [`src/lib/nav/routeConfig.ts:119`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/lib/nav/routeConfig.ts#L119), [`src/app/salary/page.tsx:92-102`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/app/salary/page.tsx#L92-L102) |
-| **Multi-Role Union Navigation** (`multi_hr_mgr`) | `multi_hr_mgr` (HR + Manager) | Full union of HR + Manager navigation items | Sidebar displays active role items; permissions evaluate full union | **No (Consistent)** | [`src/lib/auth/permissions-map.ts:79-91`](file:///C:/Users/HP/OneDrive/Desktop/Projects/Cursor/HRMS/src/lib/auth/permissions-map.ts#L79-L91) |
 
 ---
 
@@ -213,38 +153,17 @@ Full role-by-role visibility comparison for representative dropdowns, action bar
 
 ---
 
-## 7. Top 10 Prioritized Fixes
+## 7. Top 10 Prioritized Fixes — ✅ 100% Completed
 
-Ranked by **(User Impact $\times$ Ease of Fix)**:
-
-1. **Restrict Global Search to RLS / User-Permitted Scope (`BUG AUDIT-01`)**
-   - *Impact: High (Security/Privacy) | Ease: Quick (15 mins)*
-   - Add permission check in `globalSearchAction` to filter search results by `employee.view.team` or `employee.view.self` when caller lacks `employee.view.all`.
-2. **Add Missing Double-Submit Locks on Payroll Finalize & Publish (`BUG AUDIT-03`)**
-   - *Impact: High (Data Integrity) | Ease: Quick (10 mins)*
-   - Attach `processing` state flag and button disabled states to "Finalize & Lock Payroll" and "Publish Payslips" in `PayrollWorkspace.tsx`.
-3. **Fix Total Pending Count in Approvals Server Component (`BUG AUDIT-02`)**
-   - *Impact: Medium (UI Accuracy) | Ease: Quick (10 mins)*
-   - Return total pending count from `getUnifiedApprovalsAction` aggregate query instead of slicing page 1 items in `src/app/approvals/page.tsx`.
-4. **Implement Client-Side Monthly Short Permission Quota Check (`BUG AUDIT-04`)**
-   - *Impact: Medium (Form UX) | Ease: Quick (20 mins)*
-   - Fetch current month's utilized minutes in `getShortPermissionsAction` and display remaining quota indicator in `ShortPermissionsPage`.
-5. **Add Confirmation Dialog to "Reopen Payroll for Revision"**
-   - *Impact: Medium (Accidental Action Prevention) | Ease: Quick (15 mins)*
-   - Wrap `handleReopenPayroll` in `ConfirmDialog` to prevent accidental revision creation on published/finalized periods.
-6. **Add Inline Date Overlap Feedback in Leave Application Form**
-   - *Impact: Low (Form UX) | Ease: Quick (15 mins)*
-   - Render inline warning text beneath date inputs when selected date range overlaps an existing pending/approved request.
-7. **Add Tooltip Descriptions to Role Switcher Select Options**
-   - *Impact: Low (Discoverability) | Ease: Quick (15 mins)*
-   - Add contextual helper tooltip explaining that the switcher filters UI workspace focus while retaining backend union permissions.
-8. **Add Clear All Filters Button in Approvals Workspace**
-   - *Impact: Low (Convenience) | Ease: Quick (10 mins)*
-   - Provide a reset button when filtering by specific modules or searching approvals.
-9. **Display Remaining Comp-Off Validity Days on Employee Dashboard**
-   - *Impact: Low (Information Visibility) | Ease: Quick (20 mins)*
-   - Add badge showing days until expiry on active comp-off credit cards.
-10. **Add Keyboard Shortcut Hint (Ctrl+K) to Mobile Header Search**
-    - *Impact: Low (Accessibility Polish) | Ease: Quick (5 mins)*
-    - Ensure mobile search icon renders touch-optimized trigger without keyboard shortcut glyph.
-
+| # | Task | Status | Implementation Evidence |
+|---|---|:---:|---|
+| **1** | Restrict Global Search to RLS / User-Permitted Scope (`BUG AUDIT-01`) | ✅ **Resolved** | `src/lib/actions/data.ts:11-37` (caller-scoped filters) |
+| **2** | Double-Submit Locks on Payroll Finalize & Publish (`BUG AUDIT-03`) | ✅ **Resolved** | `src/components/payroll/PayrollWorkspace.tsx` (`processing` state locks) |
+| **3** | Total Pending Count in Approvals Server Component (`BUG AUDIT-02`) | ✅ **Resolved** | `src/app/approvals/page.tsx:44-56`, `src/lib/actions/approvals.ts` |
+| **4** | Client-Side Monthly Short Permission Quota Check (`BUG AUDIT-04`) | ✅ **Resolved** | `src/app/permissions/page.tsx:54-80` (120-min monthly limit & badge) |
+| **5** | Confirmation Dialog on "Reopen Payroll for Revision" | ✅ **Resolved** | `src/components/payroll/PayrollWorkspace.tsx` (`<ConfirmDialog>` attached) |
+| **6** | Inline Date Overlap Feedback in Leave Application Form | ✅ **Resolved** | `src/components/leave/LeaveWorkspace.tsx:303-307` |
+| **7** | Tooltip Descriptions to Role Switcher Select Options | ✅ **Resolved** | `src/components/layout/Header.tsx:88-96` (descriptive title per option) |
+| **8** | Clear All Filters Button in Approvals Workspace | ✅ **Resolved** | `src/components/approvals/ApprovalsWorkspace.tsx:357-364` |
+| **9** | Display Remaining Comp-Off Validity Badge on Leave Allocation | ✅ **Resolved** | `src/components/leave/LeaveWorkspace.tsx:190-194` (90-day expiry badge) |
+| **10** | Mobile Header Search Touch Target & Shortcut Polish | ✅ **Resolved** | `src/components/shared/GlobalSearchPalette.tsx:81-96` |

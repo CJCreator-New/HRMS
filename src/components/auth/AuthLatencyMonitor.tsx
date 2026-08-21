@@ -181,9 +181,10 @@ export function AuthLatencyMonitor({ attempts, onClearHistory }: AuthLatencyMoni
               unit="ms"
             />
             <Tooltip
-              content={({ active, payload }: any) => {
+              content={({ active, payload }) => {
                 if (active && payload && payload.length) {
-                  const data = payload[0].payload as LoginAttemptMetric & { formattedTime: string };
+                  const data = payload[0].payload as (LoginAttemptMetric & { formattedTime: string }) | undefined;
+                  if (!data) return null;
                   const isSuccess = data.status === "success";
                   return (
                     <div className="bg-ink text-white p-2 rounded shadow-lg text-[11px] space-y-1 z-50">
@@ -217,8 +218,9 @@ export function AuthLatencyMonitor({ attempts, onClearHistory }: AuthLatencyMoni
               strokeWidth={2}
               fillOpacity={1}
               fill="url(#authLatencyGrad)"
-              dot={(props: any) => {
+              dot={(props: { cx?: number; cy?: number; payload?: LoginAttemptMetric & { formattedTime: string } }) => {
                 const { cx, cy, payload } = props;
+                if (!payload || cx === undefined || cy === undefined) return null;
                 const isErr = payload.status === "error";
                 return (
                   <circle

@@ -5,13 +5,26 @@ import { computeEncashmentAmount } from "@/lib/services/compensation-engine";
 import { assertPermission, assertAnyPermission, assertCallerIdentity, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { validateRequestOrigin } from "@/lib/security";
 
+export interface LeaveEncashmentRecord {
+  id: string;
+  employee_id: string;
+  leave_type_id: string;
+  days_to_encash: number;
+  encashment_trigger: string;
+  daily_rate: number;
+  total_amount: number;
+  status: string;
+  created_at?: string;
+  [key: string]: unknown;
+}
+
 export async function submitLeaveEncashmentAction(
   employeeId: string,
   daysToEncash: number,
   triggerType: "annual_window" | "fnf",
   basicMonthlySalary: number,
   leaveTypeId?: string
-): Promise<{ success: boolean; error?: string; request?: any }> {
+): Promise<{ success: boolean; error?: string; request?: LeaveEncashmentRecord }> {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { success: false, error: csrfError.error };
 
@@ -59,7 +72,7 @@ export async function submitLeaveEncashmentAction(
 export async function decideLeaveEncashmentAction(
   requestId: string,
   decision: "approved" | "rejected"
-): Promise<{ success: boolean; error?: string; request?: any }> {
+): Promise<{ success: boolean; error?: string; request?: LeaveEncashmentRecord }> {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { success: false, error: csrfError.error };
 

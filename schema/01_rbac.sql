@@ -310,7 +310,7 @@ select r.id, p.id from roles r, permissions p
 where r.code = 'manager' and p.code in (
   'employee.view.self', 'attendance.mark.self', 'attendance.view.self', 'attendance.correct.self',
   'leave.view.self', 'leave.apply.self', 'leave.cancel.self', 'leave.encash.apply.self',
-  'compoff.apply.self', 'permission.apply.self', 'reimbursement.apply.self',
+  'compoff.apply.self', 'permission.apply.self', 'salary.view.self', 'reimbursement.apply.self',
   'reimbursement.cancel.self', 'attachment.upload', 'attachment.view',
   'employee.view.team', 'attendance.mark.team', 'attendance.view.team', 'attendance.correct.approve',
   'leave.view.team', 'leave.approve.manager', 'leave.cancel.approve', 'permission.approve',

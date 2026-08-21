@@ -11,7 +11,7 @@
  * *email* → *roles* resolution and route allow-list live here.
  */
 
-import { ROLE_PERMISSIONS_MAP } from "@/lib/auth/permissions-map";
+import { ROLE_PERMISSIONS_MAP, hasPermission as checkScopePermission } from "@/lib/auth/permissions-map";
 import type { RoleCode } from "@/lib/types";
 
 // E2E / offline mock RBAC table — the single source of truth the middleware
@@ -54,7 +54,7 @@ export const E2E_MOCK_ALLOWED_ROUTES: Record<string, string[] | "ALL"> = {
   "multi.hrmgr@company.com": [
     "/", "/approvals", "/attendance", "/leave", "/calendar",
     "/employees", "/employees/import", "/onboarding", "/departments",
-    "/offboarding", "/statutory", "/reimbursements",
+    "/offboarding", "/salary", "/statutory", "/reimbursements",
     "/encashment", "/documents", "/permissions", "/jobs",
     "/reports", "/settings", "/audit",
   ],
@@ -108,10 +108,10 @@ export function hasMockPermission(
   if (Array.isArray(allowed) && allowed.length === 0) return false; // revoked
 
   const { roles } = resolveMockRolesFromEmail(email);
-  const heldPermissions = new Set(
-    roles.flatMap((role) => ROLE_PERMISSIONS_MAP[role as RoleCode] || [])
+  const heldPermissions = Array.from(
+    new Set(roles.flatMap((role) => ROLE_PERMISSIONS_MAP[role as RoleCode] || []))
   );
-  return requiredPermissions.some((p) => heldPermissions.has(p));
+  return requiredPermissions.some((p) => checkScopePermission(heldPermissions, p));
 }
 
 export function resolveMockEmployeeIdFromEmail(email: string): string | null {

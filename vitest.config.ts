@@ -26,6 +26,15 @@ export default defineConfig({
         "**/*.{test,spec}.{js,ts,jsx,tsx}",
         "**/__tests__/**",
       ],
+      // Ratchet thresholds — raise these as coverage improves.
+      // Current baseline (Aug 2026): 52.85% stmts, 43.43% branches,
+      //   43.41% functions, 56.09% lines.
+      thresholds: {
+        statements: 50,
+        branches: 40,
+        functions: 40,
+        lines: 53,
+      },
     },
   },
   resolve: {

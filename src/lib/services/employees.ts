@@ -24,33 +24,8 @@ const EMPLOYEE_SORT_COLUMNS: Record<string, string> = {
   created_at: "created_at",
 };
 
-export interface EmployeeItem {
-  id: string;
-  code: string;
-  name: string;
-  email: string;
-  department: string;
-  designation: string;
-  manager: string;
-  status: "invited" | "active" | "suspended" | "notice_period" | "offboarded";
-  is_deactivated: boolean;
-  doj: string;
-}
-
-export function toEmployeeItem(e: any): EmployeeItem {
-  return {
-    id: e.id,
-    code: e.employee_code || "",
-    name: e.full_name || "",
-    email: e.email || "",
-    department: e.department || "",
-    designation: e.designation || "",
-    manager: e.manager_name || "",
-    status: e.status || "active",
-    is_deactivated: e.is_deactivated ?? false,
-    doj: e.date_of_joining || "",
-  };
-}
+import { type EmployeeItem, type EmployeeDbRow, toEmployeeItem } from "@/lib/types";
+export { type EmployeeItem, type EmployeeDbRow, toEmployeeItem };
 
 /**
  * Employee directory query (M-09). When `page` is provided, performs a
@@ -60,7 +35,7 @@ export function toEmployeeItem(e: any): EmployeeItem {
  */
 export async function queryEmployees(
   opts: EmployeeQueryOptions = {}
-): Promise<{ employees: any[]; total: number | null }> {
+): Promise<{ employees: EmployeeDbRow[]; total: number | null }> {
   const { page, pageSize = 25, search, sort } = opts;
   const paginated = typeof page === "number" && page > 0;
   const supabase = await createClient();
@@ -83,6 +58,8 @@ export async function queryEmployees(
   if (paginated) {
     const from = (page - 1) * pageSize;
     query = query.range(from, from + pageSize - 1);
+  } else {
+    query = query.limit(500);
   }
 
   const { data, error, count } = await query;

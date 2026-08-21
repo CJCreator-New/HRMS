@@ -37,16 +37,26 @@ export async function getDashboardData(userInfo: CurrentUserInfo): Promise<Dashb
 
   const hasHeadcountAccess = userInfo.roles.includes("system_admin") || userInfo.roles.includes("hr") || userInfo.roles.includes("payroll_admin");
 
-  // -- Headcount: targeted counts instead of a full employee fetch -------------
+  // -- Headcount: single RPC aggregation with fallback to minimal count queries -
   const headcountPromise = (async (): Promise<DashboardData["headcount"]> => {
     if (!hasHeadcountAccess) return null;
     try {
-      const activeQuery = supabase
-        .from("employees")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "active");
+      // 1. Try single RPC call for optimized server-side aggregation
+      const { data: rpcData, error: rpcError } = await supabase.rpc("get_dashboard_headcount");
+      if (!rpcError && Array.isArray(rpcData) && rpcData.length > 0) {
+        const row = rpcData[0];
+        return {
+          active: Number(row.active ?? 0),
+          newThisMonth: Number(row.new_this_month ?? 0),
+        };
+      }
+
+      // 2. Fallback to parallel count queries with minimal projections
       const [{ count: active }, { count: newThisMonth }] = await Promise.all([
-        activeQuery,
+        supabase
+          .from("employees")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "active"),
         supabase
           .from("employees")
           .select("id", { count: "exact", head: true })
@@ -59,12 +69,12 @@ export async function getDashboardData(userInfo: CurrentUserInfo): Promise<Dashb
     }
   })();
 
-  // -- Pending approvals: count from the RLS-scoped dashboard view -------------
+  // -- Pending approvals: count from the RLS-scoped dashboard view (minimal projection)
   const pendingApprovalsPromise = (async (): Promise<number | null> => {
     try {
       const { count, error } = await supabase
         .from("v_pending_approvals_dashboard")
-        .select("*", { count: "exact", head: true });
+        .select("id", { count: "exact", head: true });
       if (error) return null;
       return count ?? 0;
     } catch {

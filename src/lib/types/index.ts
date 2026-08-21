@@ -36,7 +36,10 @@ export type RoleCode =
   | "manager"
   | "hr"
   | "payroll_admin"
-  | "system_admin";
+  | "system_admin"
+  | "statutory_admin"
+  | "finance_admin"
+  | "it_admin";
 
 export interface Role {
   id: string;
@@ -81,4 +84,46 @@ export interface RoleContext {
   activeRole: RoleCode;
   assignedRoles: RoleCode[];
   unionPermissions: string[];
+}
+
+export interface EmployeeItem {
+  id: string;
+  code: string;
+  name: string;
+  email: string;
+  department: string;
+  designation: string;
+  manager: string;
+  status: "invited" | "active" | "suspended" | "notice_period" | "offboarded";
+  is_deactivated: boolean;
+  doj: string;
+}
+
+export interface EmployeeDbRow {
+  id: string;
+  employee_code?: string | null;
+  full_name?: string | null;
+  email?: string | null;
+  department?: string | null;
+  designation?: string | null;
+  manager_name?: string | null;
+  status?: "invited" | "active" | "suspended" | "notice_period" | "offboarded" | string | null;
+  is_deactivated?: boolean | null;
+  date_of_joining?: string | null;
+  [key: string]: unknown;
+}
+
+export function toEmployeeItem(e: EmployeeDbRow): EmployeeItem {
+  return {
+    id: e.id,
+    code: e.employee_code || "",
+    name: e.full_name || "",
+    email: e.email || "",
+    department: e.department || "",
+    designation: e.designation || "",
+    manager: e.manager_name || "",
+    status: (e.status as EmployeeItem["status"]) || "active",
+    is_deactivated: Boolean(e.is_deactivated),
+    doj: e.date_of_joining || "",
+  };
 }

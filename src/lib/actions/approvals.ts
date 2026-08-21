@@ -7,15 +7,37 @@ import {
   REQUEST_TYPE_BY_MODULE,
   mapApprovalRowToItem,
 } from "@/lib/services/mappers";
-import { assertPermission, assertAnyPermission } from "@/lib/auth/assertPermission";
+import { assertPermission, assertAnyPermission, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { formatDateIndian } from "@/lib/utils/formatters";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
+import type { RoleCode } from "@/lib/types";
 
-export async function getPendingApprovalsCountAction() {
+export async function getPendingApprovalsCountAction(roleFocus?: RoleCode) {
   const supabase = await createClient();
-  const { count, error } = await supabase
+  const caller = await getAuthenticatedCaller();
+
+  if (roleFocus === "employee") {
+    return { count: 0 };
+  }
+
+  let query = supabase
     .from("v_pending_approvals_dashboard")
-    .select("*", { count: "exact", head: true });
+    .select("id", { count: "exact", head: true });
+
+  if (roleFocus === "manager" && caller?.employeeId) {
+    const { data: teamEmps } = await supabase
+      .from("employees")
+      .select("id")
+      .eq("manager_id", caller.employeeId);
+
+    const teamIds = (teamEmps || []).map((e: { id: string }) => e.id);
+    if (teamIds.length === 0) {
+      return { count: 0 };
+    }
+    query = query.in("employee_id", teamIds);
+  }
+
+  const { count, error } = await query;
 
   if (error) return { count: 0 };
   return { count: count || 0 };
@@ -70,11 +92,11 @@ export async function getUnifiedApprovalsAction(opts: ApprovalsQueryOptions = {}
   const { data, error, count } = await query;
   if (error) return { error: error.message, items: [], total: 0, pendingCount: 0 };
 
-  const mappedItems = (data || []).map((row: any) => mapApprovalRowToItem(row));
+  const mappedItems = (data || []).map((row: Parameters<typeof mapApprovalRowToItem>[0]) => mapApprovalRowToItem(row));
 
   // Count total pending items across all pages for the active filter
   let pendingCount = count || 0;
-  if (data && data.some((r: any) => r.status !== "pending")) {
+  if (data && data.some((r: { status?: string | null }) => r.status !== "pending")) {
     const { count: pendingTotal } = await supabase
       .from("v_pending_approvals_dashboard")
       .select("*", { count: "exact", head: true })
@@ -198,8 +220,9 @@ export async function decideApprovalAction(
       .eq("id", recordId)
       .single();
 
-    const claimStatus = (claim as any)?.status;
-    const approvalRoute = (claim as any)?.reimbursement_categories?.approval_route;
+    const claimRecord = claim as { status?: string; reimbursement_categories?: { approval_route?: string } } | null;
+    const claimStatus = claimRecord?.status;
+    const approvalRoute = claimRecord?.reimbursement_categories?.approval_route;
 
     if (
       decision === "approved" &&
@@ -279,8 +302,18 @@ export async function getApprovalDetailAction(module: string, recordId: string) 
         .single();
       if (error) return { error: error.message };
 
-      const rawTypeName = (data as any)?.leave_types?.name || "—";
-      const rawTypeCode = ((data as any)?.leave_types?.code || "").toUpperCase();
+      const row = data as {
+        start_date?: string | null;
+        end_date?: string | null;
+        total_days?: number | null;
+        duration_type?: string | null;
+        reason?: string | null;
+        created_at?: string | null;
+        leave_types?: { name?: string | null; code?: string | null } | null;
+      } | null;
+
+      const rawTypeName = row?.leave_types?.name || "—";
+      const rawTypeCode = (row?.leave_types?.code || "").toUpperCase();
       const isParental =
         rawTypeCode === "MATERNITY" ||
         rawTypeCode === "PATERNITY" ||
@@ -288,7 +321,7 @@ export async function getApprovalDetailAction(module: string, recordId: string) 
         rawTypeName.toLowerCase().includes("paternity");
 
       let displayTypeName = rawTypeName;
-      let displayReason = (data as any)?.reason || "—";
+      let displayReason = row?.reason || "—";
 
       if (isParental) {
         const canViewAll = (await assertPermission("leave.view.all")) === null;
@@ -300,11 +333,11 @@ export async function getApprovalDetailAction(module: string, recordId: string) 
 
       fields = [
         { label: "Leave Type", value: displayTypeName },
-        { label: "From", value: fmtDate((data as any)?.start_date) },
-        { label: "To", value: fmtDate((data as any)?.end_date) },
-        { label: "Duration", value: `${(data as any)?.total_days ?? "—"} day(s) (${(data as any)?.duration_type || "—"})` },
+        { label: "From", value: fmtDate(row?.start_date) },
+        { label: "To", value: fmtDate(row?.end_date) },
+        { label: "Duration", value: `${row?.total_days ?? "—"} day(s) (${row?.duration_type || "—"})` },
         { label: "Reason", value: displayReason },
-        { label: "Submitted", value: fmtDate((data as any)?.created_at) },
+        { label: "Submitted", value: fmtDate(row?.created_at) },
       ];
     } else if (module === "attendance") {
       const { data, error } = await supabase
@@ -313,12 +346,21 @@ export async function getApprovalDetailAction(module: string, recordId: string) 
         .eq("id", recordId)
         .single();
       if (error) return { error: error.message };
+
+      const row = data as {
+        requested_status?: string | null;
+        requested_check_in?: string | null;
+        requested_check_out?: string | null;
+        reason?: string | null;
+        created_at?: string | null;
+      } | null;
+
       fields = [
-        { label: "Requested Status", value: (data as any)?.requested_status || "—" },
-        { label: "Requested Check-In", value: fmtDate((data as any)?.requested_check_in) },
-        { label: "Requested Check-Out", value: fmtDate((data as any)?.requested_check_out) },
-        { label: "Reason", value: (data as any)?.reason || "—" },
-        { label: "Submitted", value: fmtDate((data as any)?.created_at) },
+        { label: "Requested Status", value: row?.requested_status || "—" },
+        { label: "Requested Check-In", value: fmtDate(row?.requested_check_in) },
+        { label: "Requested Check-Out", value: fmtDate(row?.requested_check_out) },
+        { label: "Reason", value: row?.reason || "—" },
+        { label: "Submitted", value: fmtDate(row?.created_at) },
       ];
     } else if (module === "reimbursement") {
       const { data, error } = await supabase
@@ -327,14 +369,25 @@ export async function getApprovalDetailAction(module: string, recordId: string) 
         .eq("id", recordId)
         .single();
       if (error) return { error: error.message };
+
+      const row = data as {
+        claim_date?: string | null;
+        vendor_name?: string | null;
+        requested_amount?: number | null;
+        description?: string | null;
+        is_duplicate_warning?: boolean | null;
+        created_at?: string | null;
+        reimbursement_categories?: { name?: string | null } | null;
+      } | null;
+
       fields = [
-        { label: "Category", value: (data as any)?.reimbursement_categories?.name || "—" },
-        { label: "Claim Date", value: fmtDate((data as any)?.claim_date) },
-        { label: "Vendor", value: (data as any)?.vendor_name || "—" },
-        { label: "Requested Amount", value: fmtCurrency((data as any)?.requested_amount) },
-        { label: "Description", value: (data as any)?.description || "—" },
-        { label: "Duplicate Warning", value: (data as any)?.is_duplicate_warning ? "Yes" : "No" },
-        { label: "Submitted", value: fmtDate((data as any)?.created_at) },
+        { label: "Category", value: row?.reimbursement_categories?.name || "—" },
+        { label: "Claim Date", value: fmtDate(row?.claim_date) },
+        { label: "Vendor", value: row?.vendor_name || "—" },
+        { label: "Requested Amount", value: fmtCurrency(row?.requested_amount) },
+        { label: "Description", value: row?.description || "—" },
+        { label: "Duplicate Warning", value: row?.is_duplicate_warning ? "Yes" : "No" },
+        { label: "Submitted", value: fmtDate(row?.created_at) },
       ];
     } else if (module === "encashment") {
       const { data, error } = await supabase
@@ -343,11 +396,19 @@ export async function getApprovalDetailAction(module: string, recordId: string) 
         .eq("id", recordId)
         .single();
       if (error) return { error: error.message };
+
+      const row = data as {
+        days_to_encash?: number | null;
+        daily_rate?: number | null;
+        total_amount?: number | null;
+        created_at?: string | null;
+      } | null;
+
       fields = [
-        { label: "Days to Encash", value: `${(data as any)?.days_to_encash ?? "—"} day(s)` },
-        { label: "Daily Rate", value: fmtCurrency((data as any)?.daily_rate) },
-        { label: "Total Amount", value: fmtCurrency((data as any)?.total_amount) },
-        { label: "Submitted", value: fmtDate((data as any)?.created_at) },
+        { label: "Days to Encash", value: `${row?.days_to_encash ?? "—"} day(s)` },
+        { label: "Daily Rate", value: fmtCurrency(row?.daily_rate) },
+        { label: "Total Amount", value: fmtCurrency(row?.total_amount) },
+        { label: "Submitted", value: fmtDate(row?.created_at) },
       ];
     } else if (module === "offboarding") {
       const { data, error } = await supabase
@@ -356,45 +417,73 @@ export async function getApprovalDetailAction(module: string, recordId: string) 
         .eq("id", recordId)
         .single();
       if (error) return { error: error.message };
+
+      const row = data as {
+        last_working_day?: string | null;
+        leave_encashment_amount?: number | null;
+        asset_recovery_amount?: number | null;
+        net_settlement_amount?: number | null;
+        created_at?: string | null;
+      } | null;
+
       fields = [
-        { label: "Last Working Day", value: fmtDate((data as any)?.last_working_day) },
-        { label: "Leave Encashment", value: fmtCurrency((data as any)?.leave_encashment_amount) },
-        { label: "Asset Recovery", value: fmtCurrency((data as any)?.asset_recovery_amount) },
-        { label: "Net Settlement", value: fmtCurrency((data as any)?.net_settlement_amount) },
-        { label: "Submitted", value: fmtDate((data as any)?.created_at) },
+        { label: "Last Working Day", value: fmtDate(row?.last_working_day) },
+        { label: "Leave Encashment", value: fmtCurrency(row?.leave_encashment_amount) },
+        { label: "Asset Recovery", value: fmtCurrency(row?.asset_recovery_amount) },
+        { label: "Net Settlement", value: fmtCurrency(row?.net_settlement_amount) },
+        { label: "Submitted", value: fmtDate(row?.created_at) },
       ];
-    } else if (module === "permission") {
+    } else if (module === "permission" || module === "permissions" || module === "permission_request") {
       const { data, error } = await supabase
         .from("permission_requests")
-        .select("request_date, start_time, end_time, reason, created_at")
+        .select("permission_date, start_time, end_time, reason, created_at")
         .eq("id", recordId)
         .single();
       if (error) return { error: error.message };
+
+      const row = data as {
+        permission_date?: string | null;
+        start_time?: string | null;
+        end_time?: string | null;
+        reason?: string | null;
+        created_at?: string | null;
+      } | null;
+
       fields = [
-        { label: "Date", value: fmtDate((data as any)?.request_date) },
-        { label: "Time Range", value: `${(data as any)?.start_time || "—"} to ${(data as any)?.end_time || "—"}` },
-        { label: "Reason", value: (data as any)?.reason || "—" },
-        { label: "Submitted", value: fmtDate((data as any)?.created_at) },
+        { label: "Date", value: fmtDate(row?.permission_date) },
+        { label: "Time Range", value: `${row?.start_time || "—"} to ${row?.end_time || "—"}` },
+        { label: "Reason", value: row?.reason || "—" },
+        { label: "Submitted", value: fmtDate(row?.created_at) },
       ];
-    } else if (module === "compoff") {
+    } else if (module === "compoff" || module === "comp_off_grant") {
       const { data, error } = await supabase
         .from("comp_off_grants")
         .select("worked_date, days_granted, expiry_date, reason, created_at")
         .eq("id", recordId)
         .single();
       if (error) return { error: error.message };
+
+      const row = data as {
+        worked_date?: string | null;
+        days_granted?: number | null;
+        expiry_date?: string | null;
+        reason?: string | null;
+        created_at?: string | null;
+      } | null;
+
       fields = [
-        { label: "Worked Date", value: fmtDate((data as any)?.worked_date) },
-        { label: "Days Granted", value: `${(data as any)?.days_granted ?? "—"} day(s)` },
-        { label: "Expiry Date", value: fmtDate((data as any)?.expiry_date) },
-        { label: "Reason", value: (data as any)?.reason || "—" },
-        { label: "Submitted", value: fmtDate((data as any)?.created_at) },
+        { label: "Worked Date", value: fmtDate(row?.worked_date) },
+        { label: "Days Granted", value: `${row?.days_granted ?? "—"} day(s)` },
+        { label: "Expiry Date", value: fmtDate(row?.expiry_date) },
+        { label: "Reason", value: row?.reason || "—" },
+        { label: "Submitted", value: fmtDate(row?.created_at) },
       ];
     } else {
       return { success: true, detail: [] };
     }
-  } catch (e: any) {
-    return { error: e?.message || "Failed to load request details" };
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Failed to load request details";
+    return { error: message };
   }
 
   return { success: true, detail: fields };

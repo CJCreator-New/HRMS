@@ -4,13 +4,28 @@ import { createClient } from "@/lib/supabase/server";
 import { assertPermission } from "@/lib/auth/assertPermission";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 
+export interface AuditLogRecord {
+  id: string;
+  actor_id?: string | null;
+  actor_name?: string | null;
+  action: string;
+  entity_type: string;
+  entity_id?: string | null;
+  old_values?: unknown;
+  new_values?: unknown;
+  metadata?: unknown;
+  correlation_id?: string | null;
+  created_at?: string | null;
+  [key: string]: unknown;
+}
+
 export async function getAuditLogsAction(filters?: {
   search?: string;
   entity?: string;
   from?: string;
   to?: string;
   limit?: number;
-}) {
+}): Promise<{ error?: string; logs: AuditLogRecord[] }> {
   const permError = await assertPermission("audit.view");
   if (permError) return { error: permError.error, logs: [] };
 
@@ -26,19 +41,28 @@ export async function getAuditLogsAction(filters?: {
   if (filters?.from) query = query.gte("created_at", filters.from);
   if (filters?.to) query = query.lte("created_at", filters.to);
 
+  if (filters?.search && filters.search.trim()) {
+    const q = filters.search.trim().replace(/[%]/g, "");
+    query = query.or(
+      `actor_name.ilike.%${q}%,action.ilike.%${q}%,entity_type.ilike.%${q}%,correlation_id.ilike.%${q}%`
+    );
+  }
+
   const { data, error } = await query;
   if (error) return { error: error.message, logs: [] };
 
-  // Apply search post-fetch (audit_logs may not have full text index)
+  const typedData = (data as AuditLogRecord[]) || [];
+
+  // Apply search filter (for mock environments and additional client precision)
   const logs = filters?.search
-    ? (data || []).filter(
-        (l: any) =>
+    ? typedData.filter(
+        (l: AuditLogRecord) =>
           l.actor_name?.toLowerCase().includes(filters.search!.toLowerCase()) ||
           l.action?.toLowerCase().includes(filters.search!.toLowerCase()) ||
           l.entity_type?.toLowerCase().includes(filters.search!.toLowerCase()) ||
           l.correlation_id?.toLowerCase().includes(filters.search!.toLowerCase())
       )
-    : data || [];
+    : typedData;
 
   return { logs };
 }
@@ -47,9 +71,9 @@ export interface WriteAuditLogParams {
   action: string;
   entityType: string;
   entityId?: string;
-  oldValues?: any;
-  newValues?: any;
-  metadata?: any;
+  oldValues?: unknown;
+  newValues?: unknown;
+  metadata?: Record<string, unknown>;
 }
 
 export async function writeAuditLogAction(params: WriteAuditLogParams) {
@@ -82,7 +106,7 @@ export async function writeAuditLogAction(params: WriteAuditLogParams) {
       }
     }
 
-    const { data, error } = await supabase.from("audit_logs").insert({
+    const { error } = await supabase.from("audit_logs").insert({
       actor_id: actorId,
       actor_name: actorName,
       action: params.action,
@@ -95,7 +119,8 @@ export async function writeAuditLogAction(params: WriteAuditLogParams) {
 
     if (error) return { error: error.message };
     return { success: true };
-  } catch (err: any) {
-    return { error: err?.message || "Failed to record audit log" };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to record audit log";
+    return { error: message };
   }
 }

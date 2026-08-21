@@ -18,7 +18,7 @@ create table scheduled_job_logs (
   completed_at             timestamptz
 );
 
--- 2. Monthly Earned Leave (EL) Accrual Job Function (Zero-seed configurable rate)
+-- 2. Monthly Earned Leave (EL) Accrual Job Function (Set-based, transactional)
 create or replace function job_accrue_monthly_earned_leave(p_accrual_rate numeric default 1.25)
 returns void language plpgsql as $$
 declare
@@ -26,7 +26,6 @@ declare
   v_el_type_id uuid;
   v_curr_year integer := extract(year from current_date);
   v_processed integer := 0;
-  r record;
 begin
   insert into scheduled_job_logs (job_name) values ('monthly_el_accrual') returning id into v_job_id;
   select id into v_el_type_id from leave_types where code = 'EL';
@@ -36,18 +35,24 @@ begin
     return;
   end if;
 
-  for r in select id from employees where status = 'active' loop
+  with inserted as (
     insert into leave_allocations (employee_id, leave_type_id, year, allocated_days)
-    values (r.id, v_el_type_id, v_curr_year, p_accrual_rate)
+    select id, v_el_type_id, v_curr_year, p_accrual_rate
+    from employees
+    where status = 'active'
     on conflict (employee_id, leave_type_id, year) do update set
       allocated_days = leave_allocations.allocated_days + p_accrual_rate,
-      updated_at = now();
-
-    v_processed := v_processed + 1;
-  end loop;
+      updated_at = now()
+    returning id
+  )
+  select count(*) into v_processed from inserted;
 
   update scheduled_job_logs
   set status = 'success', records_processed_count = v_processed, completed_at = now()
+  where id = v_job_id;
+exception when others then
+  update scheduled_job_logs
+  set status = 'failed', error_details = SQLERRM, completed_at = now()
   where id = v_job_id;
 end;
 $$;
@@ -75,10 +80,18 @@ begin
   update scheduled_job_logs
   set status = 'success', records_processed_count = v_count, completed_at = now()
   where id = v_job_id;
+exception when others then
+  update scheduled_job_logs
+  set status = 'failed', error_details = SQLERRM, completed_at = now()
+  where id = v_job_id;
 end;
 $$;
 
--- 4. Row Level Security
+-- 4. Performance Indexes
+create index if not exists idx_comp_off_grants_expiry_status
+  on comp_off_grants (expiry_date, status);
+
+-- 5. Row Level Security
 alter table scheduled_job_logs enable row level security;
 
 create policy job_logs_read on scheduled_job_logs for select

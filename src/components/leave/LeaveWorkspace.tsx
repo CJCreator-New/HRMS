@@ -187,6 +187,11 @@ export function LeaveWorkspace({
                   <p className="text-[10px] text-ink-muted">
                     Allocated: {alloc.allocated} &bull; Used: {alloc.used}
                   </p>
+                  {alloc.type_code === "COMP_OFF" && (
+                    <p className="text-[10px] text-purple-700 font-semibold mt-0.5 flex items-center gap-1">
+                      <span>⏱️ 90-day expiry rule applies</span>
+                    </p>
+                  )}
                 </div>
 
                 <div className="pt-2 border-t border-line flex items-center justify-between text-[10px]">
@@ -243,7 +248,7 @@ export function LeaveWorkspace({
                   id="durationTypeSelect"
                   data-testid="duration-type-select"
                   value={durationType}
-                  onChange={(e) => setDurationType(e.target.value as any)}
+                  onChange={(e) => setDurationType(e.target.value as "full_day" | "first_half" | "second_half")}
                   className="w-full border border-line-strong rounded-lg px-3 py-2 bg-surface focus:ring-2 focus:ring-primary-300 focus:outline-none"
                 >
                   <option value="full_day">Full Day</option>

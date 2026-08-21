@@ -26,6 +26,7 @@ import { PageLoading } from "@/components/shared/PageLoading";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { useToast } from "@/components/shared/Toast";
+import { useRole } from "@/lib/roleContext";
 import { usePermission } from "@/lib/auth/usePermission";
 import { formatDateIndian } from "@/lib/utils/formatters";
 
@@ -35,7 +36,7 @@ import { formatDateIndian } from "@/lib/utils/formatters";
 
 interface ApprovalItem {
   id: string;
-  module: "leave" | "attendance" | "reimbursement" | "encashment" | "offboarding";
+  module: "leave" | "attendance" | "reimbursement" | "encashment" | "offboarding" | "permissions" | "compoff";
   employee_name: string;
   employee_code: string;
   title: string;
@@ -84,7 +85,9 @@ export function ApprovalsWorkspace({
   initialTotal,
   initialPendingCount,
 }: ApprovalsWorkspaceProps) {
-  const { canAny, isHrAdmin } = usePermission();
+  const { canAny } = usePermission();
+  const { activeRole } = useRole();
+  const isHrFocus = activeRole === "hr" || activeRole === "system_admin";
   const { toast } = useToast();
 
   /* ----- State ----- */
@@ -139,14 +142,14 @@ export function ApprovalsWorkspace({
       if (res.error) {
         setError(res.error);
       } else {
-        const mapped: ApprovalItem[] = (res.items || []).map((i: any) => ({
+        const mapped: ApprovalItem[] = (res.items || []).map((i) => ({
           id: i.id,
-          module: i.module,
+          module: i.module as ApprovalItem["module"],
           employee_name: i.employee_name || "Employee",
-          employee_code: i.employee_code || "EMP",
+          employee_code: "EMP",
           title: i.summary || "Request",
           sub_details: i.amount_or_duration || "-",
-          status: i.status || "pending",
+          status: (i.status as ApprovalItem["status"]) || "pending",
           created_at: i.submitted_date || "",
         }));
         setItems(mapped);
@@ -304,6 +307,8 @@ export function ApprovalsWorkspace({
     { id: "leave", label: "Leave Requests" },
     { id: "attendance", label: "Attendance Corrections" },
     { id: "reimbursement", label: "Reimbursements" },
+    { id: "permissions", label: "Short Permissions" },
+    { id: "compoff", label: "Comp-Off Grants" },
     { id: "encashment", label: "Encashment" },
     { id: "offboarding", label: "Offboarding F&F" },
   ];
@@ -329,24 +334,34 @@ export function ApprovalsWorkspace({
       {error && <ErrorBanner message={error} onRetry={() => setReloadKey((k) => k + 1)} />}
 
       {/* Filter Chips Bar */}
-      <div className="flex flex-wrap items-center gap-2 bg-surface p-3 rounded-xl border border-line shadow-xs">
-        <span className="text-xs font-bold text-ink-muted mr-2 flex items-center gap-1">
-          <Filter className="w-3.5 h-3.5 text-ink-faint" aria-hidden="true" /> Filter by Module:
-        </span>
-        {FILTER_MODULES.map((m) => (
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-surface p-3 rounded-xl border border-line shadow-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-bold text-ink-muted mr-2 flex items-center gap-1">
+            <Filter className="w-3.5 h-3.5 text-ink-faint" aria-hidden="true" /> Filter by Module:
+          </span>
+          {FILTER_MODULES.map((m) => (
+            <button
+              key={m.id}
+              aria-pressed={filterModule === m.id}
+              onClick={() => { setFilterModule(m.id); setPage(1); }}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 ${
+                filterModule === m.id
+                  ? "bg-primary-600 text-white shadow-xs"
+                  : "bg-surface-muted hover:bg-primary-50 text-ink-secondary"
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        {filterModule !== "all" && (
           <button
-            key={m.id}
-            aria-pressed={filterModule === m.id}
-            onClick={() => { setFilterModule(m.id); setPage(1); }}
-            className={`px-3 py-1 text-xs font-semibold rounded-lg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 ${
-              filterModule === m.id
-                ? "bg-primary-600 text-white shadow-xs"
-                : "bg-surface-muted hover:bg-primary-50 text-ink-secondary"
-            }`}
+            onClick={() => { setFilterModule("all"); setPage(1); }}
+            className="text-xs font-semibold text-primary-600 hover:text-primary-700 hover:underline px-2 py-1 transition cursor-pointer"
           >
-            {m.label}
+            Clear Filter
           </button>
-        ))}
+        )}
       </div>
 
       {/* Batch Approve Toolbar */}
@@ -421,8 +436,8 @@ export function ApprovalsWorkspace({
               item.module === "leave" &&
               (item.title.toLowerCase().includes("maternity") ||
                 item.title.toLowerCase().includes("paternity"));
-            const displayTitle = isParental && !isHrAdmin ? "Parental Leave Request" : item.title;
-            const displaySub = isParental && !isHrAdmin ? "[Confidential Medical Reason Redacted]" : item.sub_details;
+            const displayTitle = isParental && !isHrFocus ? "Parental Leave Request" : item.title;
+            const displaySub = isParental && !isHrFocus ? "[Confidential Medical Reason Redacted]" : item.sub_details;
 
             const badgeClass = MODULE_BADGE_CLASSES[item.module] || "bg-surface-muted text-ink-secondary border-line";
 
@@ -537,7 +552,7 @@ export function ApprovalsWorkspace({
             detailItem.module === "leave" &&
             (detailItem.title.toLowerCase().includes("maternity") ||
               detailItem.title.toLowerCase().includes("paternity"));
-          const drawerDisplayTitle = isDrawerParental && !isHrAdmin ? "Parental Leave Request" : detailItem.title;
+          const drawerDisplayTitle = isDrawerParental && !isHrFocus ? "Parental Leave Request" : detailItem.title;
 
           return (
             <>

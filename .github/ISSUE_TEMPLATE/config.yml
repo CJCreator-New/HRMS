@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "📖 HRMS Documentation"
+    url: "https://github.com/your-org/hrms/tree/main/docs"
+    about: "Read our architecture guides, PRD, and database migration docs."
+  - name: "🔒 Security Vulnerability Reporting"
+    url: "mailto:security@company.com"
+    about: "Report security vulnerabilities responsibly directly to the security team."

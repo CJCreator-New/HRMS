@@ -18,7 +18,7 @@ import { PageLoading } from "@/components/shared/PageLoading";
 import { DataTableSkeleton } from "@/components/shared/Skeleton";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
-import type { EmployeeItem } from "@/lib/services/employees";
+import { toEmployeeItem, type EmployeeItem } from "@/lib/types";
 
 interface EmployeeDirectoryProps {
   /** Server-rendered first page (page 1, default size/sort). */
@@ -93,18 +93,7 @@ export function EmployeeDirectory({
       if (res.error) {
         setError(res.error);
       } else {
-        const mapped: EmployeeItem[] = (res.employees || []).map((e: any) => ({
-          id: e.id,
-          code: e.employee_code || "",
-          name: e.full_name || "",
-          email: e.email || "",
-          department: e.department || "",
-          designation: e.designation || "",
-          manager: e.manager_name || "",
-          status: e.status || "active",
-          is_deactivated: e.is_deactivated ?? false,
-          doj: e.date_of_joining || "",
-        }));
+        const mapped: EmployeeItem[] = (res.employees || []).map(toEmployeeItem);
         setEmployees(mapped);
         setTotal(res.total ?? 0);
         // Clamp back to a valid page when the filtered set shrinks.

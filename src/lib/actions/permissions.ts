@@ -6,6 +6,7 @@ import { assertPermission, assertAnyPermission, getAuthenticatedCaller } from "@
 import { createNotificationAction } from "@/lib/actions/notifications";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 import { writeAuditLogAction } from "@/lib/actions/audit";
+import type { CompOffGrantRecord } from "@/lib/actions/leave";
 
 export async function applyShortPermissionAction(
   permissionDate: string,
@@ -50,7 +51,7 @@ export async function applyShortPermissionAction(
     .neq("status", "rejected");
 
   const existingMonthMins = (monthRequests || []).reduce(
-    (sum: number, r: any) => sum + (r.duration_minutes || 0),
+    (sum: number, r: { duration_minutes?: number | null }) => sum + (r.duration_minutes || 0),
     0
   );
 
@@ -120,7 +121,7 @@ export async function getShortPermissionsAction() {
   ]);
 
   const monthlyUsedMinutes = (monthRequests || []).reduce(
-    (sum: number, r: any) => sum + (r.duration_minutes || 0),
+    (sum: number, r: { duration_minutes?: number | null }) => sum + (r.duration_minutes || 0),
     0
   );
 
@@ -197,7 +198,7 @@ export async function manualCreditCompOffAction(
   days: number,
   reason: string,
   expiryDays: number = 90
-): Promise<{ success: boolean; error?: string; grant?: any }> {
+): Promise<{ success: boolean; error?: string; grant?: CompOffGrantRecord }> {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { success: false, error: csrfError.error };
 
@@ -266,13 +267,13 @@ export async function manualCreditCompOffAction(
     "/leave"
   );
 
-  return { success: true, grant };
+  return { success: true, grant: grant as CompOffGrantRecord };
 }
 
 export async function revokeCompOffAction(
   grantId: string,
   reason: string
-): Promise<{ success: boolean; error?: string; grant?: any }> {
+): Promise<{ success: boolean; error?: string; grant?: CompOffGrantRecord }> {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { success: false, error: csrfError.error };
 

@@ -25,19 +25,19 @@ export default async function ApprovalsPage() {
 
   // F10: Single data fetch — pending count derived from the unified query
   // (eliminates the separate getPendingApprovalsCountAction call).
-  let initialItems: any[] = [];
+  let initialItems: React.ComponentProps<typeof ApprovalsWorkspace>["initialItems"] = [];
   let initialTotal = 0;
   let pendingCount = 0;
   try {
     const res = await getUnifiedApprovalsAction({ page: 1, pageSize: 25, module: "all" });
-    initialItems = (res.items || []).map((i: any) => ({
+    initialItems = (res.items || []).map((i) => ({
       id: i.id,
-      module: i.module,
+      module: i.module as React.ComponentProps<typeof ApprovalsWorkspace>["initialItems"][number]["module"],
       employee_name: i.employee_name || "Employee",
-      employee_code: i.employee_code || "EMP",
+      employee_code: "EMP",
       title: i.summary || "Request",
       sub_details: i.amount_or_duration || "-",
-      status: i.status || "pending",
+      status: (i.status as React.ComponentProps<typeof ApprovalsWorkspace>["initialItems"][number]["status"]) || "pending",
       created_at: i.submitted_date || "",
     }));
     initialTotal = res.total ?? 0;

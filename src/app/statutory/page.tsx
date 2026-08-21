@@ -40,8 +40,8 @@ export default function StatutoryManagementPage() {
   const loadStatutoryData = async () => {
     setLoading(true);
     const res = await getStatutoryDataAction();
-    const rawProfiles: any[] = (res as any).profiles || [];
-    setProfiles(rawProfiles.map((p: any) => ({
+    const rawProfiles = res.profiles || [];
+    setProfiles(rawProfiles.map((p: { id: string; employees?: { employee_code?: string | null; full_name?: string | null } | null; pan_number?: string | null; uan_number?: string | null; pf_applicable?: boolean | null; is_pf_applicable?: boolean | null; esi_applicable?: boolean | null; is_esi_applicable?: boolean | null; pt_state?: string | null; tax_regime?: string | null; pf_amount?: number | null; esi_amount?: number | null; pt_amount?: number | null; tds_amount?: number | null }) => ({
       id: p.id,
       employee_code: p.employees?.employee_code || "",
       employee_name: p.employees?.full_name || "",
@@ -50,7 +50,7 @@ export default function StatutoryManagementPage() {
       pf_applicable: p.pf_applicable ?? p.is_pf_applicable ?? true,
       esi_applicable: p.esi_applicable ?? p.is_esi_applicable ?? true,
       pt_state: p.pt_state || "Karnataka",
-      tax_regime: p.tax_regime || "new_regime",
+      tax_regime: (p.tax_regime as "new_regime" | "old_regime") || "new_regime",
       pf_amount: p.pf_amount || 0,
       esi_amount: p.esi_amount || 0,
       pt_amount: p.pt_amount || 0,
@@ -240,7 +240,7 @@ export default function StatutoryManagementPage() {
           </div>
           <div>
             <label className="block font-semibold text-ink-secondary mb-1">Income Tax Regime *</label>
-            <select value={taxRegime} onChange={(e) => setTaxRegime(e.target.value as any)} className="w-full border border-line-strong rounded-lg px-3 py-2 bg-surface">
+            <select value={taxRegime} onChange={(e) => setTaxRegime(e.target.value as "new_regime" | "old_regime")} className="w-full border border-line-strong rounded-lg px-3 py-2 bg-surface">
               <option value="new_regime">New Tax Regime (Default)</option>
               <option value="old_regime">Old Tax Regime</option>
             </select>

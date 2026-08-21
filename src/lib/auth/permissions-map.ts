@@ -23,7 +23,7 @@ export const ROLE_PERMISSIONS_MAP: Record<RoleCode, string[]> = {
   manager: [
     "employee.view.self", "attendance.mark.self", "attendance.view.self", "attendance.correct.self",
     "leave.view.self", "leave.apply.self", "leave.cancel.self", "leave.encash.apply.self",
-    "compoff.apply.self", "permission.apply.self", "reimbursement.apply.self",
+    "compoff.apply.self", "permission.apply.self", "salary.view.self", "reimbursement.apply.self",
     "reimbursement.cancel.self", "attachment.upload", "attachment.view",
     "employee.view.team", "attendance.mark.team", "attendance.view.team", "attendance.correct.approve",
     "leave.view.team", "leave.approve.manager", "leave.cancel.approve", "permission.approve",
@@ -50,6 +50,18 @@ export const ROLE_PERMISSIONS_MAP: Record<RoleCode, string[]> = {
     "settings.manage", "audit.view", "job.view", "job.rerun", "employee.view.all",
     "department.bulk_assign", "calendar.bulk_assign",
   ],
+  statutory_admin: [
+    "attachment.view", "employee.view.all", "payroll.view", "reports.export", "salary.view.all",
+    "statutory.edit", "statutory.view",
+  ],
+  finance_admin: [
+    "attachment.view", "employee.view.all", "ff.approve", "ff.view", "payroll.view",
+    "reimbursement.approve", "reimbursement.view.all", "reports.export",
+  ],
+  it_admin: [
+    "attachment.upload", "attachment.view", "audit.view", "employee.view.all", "job.rerun",
+    "job.view", "settings.manage",
+  ],
 };
 
 /**
@@ -58,17 +70,11 @@ export const ROLE_PERMISSIONS_MAP: Record<RoleCode, string[]> = {
  * Defines explicit permission sets for dormant / reserved administrative roles
  * (`statutory_admin`, `finance_admin`, `it_admin`) that are specified in the
  * architectural role catalog but not yet exposed in default UI assignment dropdowns.
- *
- * Requirements for Role Activation:
- * 1. Add role code to the `RoleCode` union in `src/lib/types.ts`.
- * 2. Incorporate role code into `ROLE_PERMISSIONS_MAP` and update migration scripts for role constraints.
- * 3. Update assignment dropdowns and onboarding forms in the UI to allow assigning this role to employees.
- * 4. Ensure automated test coverage is added in `src/lib/services/__tests__/rbac-routing.test.ts`.
  */
 export const DORMANT_ROLE_PERMISSIONS_MAP: Record<string, string[]> = {
-  statutory_admin: ["statutory.view", "statutory.edit", "statutory.bulk_upsert"],
-  finance_admin: ["salary.view.all", "salary.bulk_assign", "payroll.view", "statutory.view"],
-  it_admin: ["settings.manage", "audit.view", "job.view", "job.rerun"],
+  statutory_admin: ROLE_PERMISSIONS_MAP.statutory_admin,
+  finance_admin: ROLE_PERMISSIONS_MAP.finance_admin,
+  it_admin: ROLE_PERMISSIONS_MAP.it_admin,
 };
 
 /**
@@ -90,15 +96,33 @@ export function permissionsForRoles(roles: string[]): string[] {
   );
 }
 
-/**
- * Permission check with scope fallback — mirrors the client `hasPermission`:
- * an exact code, or a broader `.all` / `.team` / `.self` scope of the same
- * permission, grants access.
- */
 export function hasPermission(permissions: string[], permissionCode: string): boolean {
   if (permissions.includes(permissionCode)) return true;
+
+  // Unscoped request: any scoped grant satisfies
   if (permissions.includes(`${permissionCode}.all`)) return true;
   if (permissions.includes(`${permissionCode}.team`)) return true;
   if (permissions.includes(`${permissionCode}.self`)) return true;
+
+  // .self request: broader scope (.team or .all or unscoped) satisfies
+  if (permissionCode.endsWith(".self")) {
+    const base = permissionCode.slice(0, -5);
+    if (
+      permissions.includes(`${base}.all`) ||
+      permissions.includes(`${base}.team`) ||
+      permissions.includes(base)
+    ) {
+      return true;
+    }
+  }
+
+  // .team request: broader scope (.all or unscoped) satisfies
+  if (permissionCode.endsWith(".team")) {
+    const base = permissionCode.slice(0, -5);
+    if (permissions.includes(`${base}.all`) || permissions.includes(base)) {
+      return true;
+    }
+  }
+
   return false;
 }

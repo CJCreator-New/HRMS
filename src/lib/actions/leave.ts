@@ -372,16 +372,27 @@ export async function requestCompOffAction(
   return { success: true, record: data };
 }
 
+export interface CompOffGrantRecord {
+  id: string;
+  employee_id: string;
+  worked_date: string;
+  days_granted: number;
+  expiry_date: string;
+  status: string;
+  approver_id?: string | null;
+  [key: string]: unknown;
+}
+
 export async function creditCompOff(
   employeeId: string,
   workedDate: string,
   daysGranted: number = 1.0,
   reason?: string
-): Promise<{ success: boolean; error?: string; record?: any }> {
+): Promise<{ success: boolean; error?: string; record?: CompOffGrantRecord }> {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { success: false, error: csrfError.error };
 
-  const permError = await assertAnyPermission(["compoff.manage", "leave.manage", "leave.approve.hr"]);
+  const permError = await assertAnyPermission(["compoff.credit.manual", "leave.approve.hr"]);
   if (permError) return { success: false, error: permError.error };
 
   const supabase = await createClient();
@@ -423,17 +434,17 @@ export async function creditCompOff(
     // Non-blocking audit failure in mock/test environment
   }
 
-  return { success: true, record: grant };
+  return { success: true, record: grant as CompOffGrantRecord };
 }
 
 export async function revokeCompOff(
   grantId: string,
   reason?: string
-): Promise<{ success: boolean; error?: string; record?: any }> {
+): Promise<{ success: boolean; error?: string; record?: CompOffGrantRecord }> {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { success: false, error: csrfError.error };
 
-  const permError = await assertAnyPermission(["compoff.manage", "leave.manage", "leave.approve.hr"]);
+  const permError = await assertAnyPermission(["compoff.revoke", "leave.approve.hr"]);
   if (permError) return { success: false, error: permError.error };
 
   const supabase = await createClient();

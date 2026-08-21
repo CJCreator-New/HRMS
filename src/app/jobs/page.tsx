@@ -56,14 +56,14 @@ export default function ScheduledJobsPage() {
   const loadLogs = async () => {
     setLoading(true);
     const res = await getScheduledJobLogsAction();
-    const rawLogs: any[] = res.logs || [];
+    const rawLogs = res.logs || [];
     setJobs(
-      rawLogs.map((l: any) => ({
+      rawLogs.map((l) => ({
         id: l.id,
         job_name: l.job_name,
-        status: l.status,
+        status: (l.status as JobLog["status"]) || "success",
         records_processed: l.records_processed_count || 0,
-        error_message: l.error_details,
+        error_message: l.error_message || undefined,
         executed_at: l.started_at ? l.started_at.replace("T", " ").split(".")[0] : "",
       }))
     );
@@ -113,9 +113,8 @@ export default function ScheduledJobsPage() {
           ]}
           rows={jobs}
           getSortValue={(j: JobLog, key) => {
-            if (key === "executed_at") return j.executed_at;
-            if (key === "records_processed") return j.records_processed;
-            return (j as any)[key];
+            if (key in j) return (j[key as keyof JobLog] ?? "") as string | number;
+            return "";
           }}
           renderRow={(j: JobLog) => (
             <tr key={j.id} className="hover:bg-surface-muted/50">

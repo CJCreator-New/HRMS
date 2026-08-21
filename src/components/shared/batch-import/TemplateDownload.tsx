@@ -6,7 +6,7 @@ import type { BatchSchemaDefinition } from "@/lib/batch-import/types";
 import { downloadTemplateFile } from "@/lib/batch-import/template";
 
 interface TemplateDownloadProps {
-  schema: BatchSchemaDefinition;
+  schema: BatchSchemaDefinition<any>;
   variant?: "button" | "dropdown" | "compact";
   className?: string;
 }

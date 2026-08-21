@@ -222,7 +222,7 @@ export function generateMockAttendanceRecords(): MockAttendanceSeed[] {
         check_in_time: item.inTime ? `${dateStr}T${item.inTime}` : undefined,
         check_out_time: item.outTime ? `${dateStr}T${item.outTime}` : undefined,
         total_work_minutes: item.mins,
-        remarks: item.remarks || null as any,
+        remarks: item.remarks || undefined,
         is_locked: false,
       });
     }

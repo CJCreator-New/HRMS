@@ -6,6 +6,8 @@ import { validateRequestOrigin } from "@/lib/security";
 import {
   mapEmployeeToSearchResult,
   mapSeparationToViewModel,
+  type SearchableEmployee,
+  type SeparationRow,
 } from "@/lib/services/mappers";
 
 export async function globalSearchAction(query: string) {
@@ -53,7 +55,7 @@ export async function globalSearchAction(query: string) {
   const { data: emp } = await queryBuilder.limit(10);
 
   return {
-    results: (emp || []).map((e: any) => mapEmployeeToSearchResult(e)),
+    results: ((emp || []) as SearchableEmployee[]).map((e) => mapEmployeeToSearchResult(e)),
   };
 }
 
@@ -85,7 +87,7 @@ export async function getCalendarDataAction() {
         .from("employee_optional_holiday_selections")
         .select("holiday_id")
         .eq("employee_id", emp.id);
-      selectedOptional = (sel || []).map((s: any) => s.holiday_id);
+      selectedOptional = ((sel || []) as Array<{ holiday_id: string }>).map((s) => s.holiday_id);
     }
   }
 
@@ -285,22 +287,28 @@ export async function getEncashmentDataAction() {
 }
 
 export async function getOffboardingDataAction() {
-  const permError = await assertPermission("offboarding.manage");
+  const permError = await assertAnyPermission(["offboarding.manage", "separation.view", "ff.view"]);
   if (permError) return { separations: [] };
 
-  const supabase = await createClient();
+  const caller = await getAuthenticatedCaller();
+  const isHr = (await assertPermission("offboarding.manage")) === null;
 
-  const { data, error } = await supabase
+  const supabase = await createClient();
+  let query = supabase
     .from("separation_records")
     .select(
       "*, employees(full_name, employee_code), ff_settlement_records(*, ff_clearances(*))"
     )
-    .order("created_at", { ascending: false })
-    .limit(20);
+    .order("created_at", { ascending: false });
 
+  if (!isHr && caller?.employeeId) {
+    query = query.eq("employee_id", caller.employeeId);
+  }
+
+  const { data, error } = await query.limit(20);
   if (error) return { separations: [] };
 
-  const separations = (data || []).map((s: any) => mapSeparationToViewModel(s));
+  const separations = ((data || []) as SeparationRow[]).map((s) => mapSeparationToViewModel(s));
 
   return { separations };
 }
@@ -343,50 +351,54 @@ export async function triggerMassSeedAction() {
   let seededAttendance = 0;
   const errors: string[] = [];
 
-  // 1. Seed employees
-  for (const emp of MOCK_EMPLOYEES) {
-    const { error } = await supabase.from("employees").upsert(
-      {
-        id: emp.id,
-        employee_code: emp.employee_code,
-        full_name: emp.full_name,
-        email: emp.email,
-        phone: emp.phone,
-        date_of_birth: emp.date_of_birth,
-        date_of_joining: emp.date_of_joining,
-        status: emp.status,
-        must_change_password: emp.must_change_password,
-        is_deactivated: emp.is_deactivated,
-      },
-      { onConflict: "id" }
-    );
+  // 1. Bulk seed employees
+  const employeePayloads = MOCK_EMPLOYEES.map((emp) => ({
+    id: emp.id,
+    employee_code: emp.employee_code,
+    full_name: emp.full_name,
+    email: emp.email,
+    phone: emp.phone,
+    date_of_birth: emp.date_of_birth,
+    date_of_joining: emp.date_of_joining,
+    status: emp.status,
+    must_change_password: emp.must_change_password,
+    is_deactivated: emp.is_deactivated,
+  }));
 
-    if (!error) {
-      seededEmployees++;
-    } else {
-      errors.push(`Employee ${emp.employee_code}: ${error.message}`);
-    }
+  const { error: empError } = await supabase
+    .from("employees")
+    .upsert(employeePayloads, { onConflict: "id" });
+
+  if (!empError) {
+    seededEmployees = MOCK_EMPLOYEES.length;
+  } else {
+    errors.push(`Employees bulk seed failed: ${empError.message}`);
   }
 
-  // 2. Seed attendance records
-  for (const att of MOCK_ATTENDANCE_RECORDS) {
-    const { error } = await supabase.from("attendance_records").upsert(
-      {
-        id: att.id,
-        employee_id: att.employee_id,
-        attendance_date: att.attendance_date,
-        status: att.status,
-        check_in_time: att.check_in_time,
-        check_out_time: att.check_out_time,
-        total_work_minutes: att.total_work_minutes,
-        remarks: att.remarks,
-        is_locked: att.is_locked ?? false,
-      },
-      { onConflict: "employee_id,attendance_date" }
-    );
+  // 2. Bulk seed attendance records in chunks of 100
+  const attendancePayloads = MOCK_ATTENDANCE_RECORDS.map((att) => ({
+    id: att.id,
+    employee_id: att.employee_id,
+    attendance_date: att.attendance_date,
+    status: att.status,
+    check_in_time: att.check_in_time,
+    check_out_time: att.check_out_time,
+    total_work_minutes: att.total_work_minutes,
+    remarks: att.remarks,
+    is_locked: att.is_locked ?? false,
+  }));
 
-    if (!error) {
-      seededAttendance++;
+  const CHUNK_SIZE = 100;
+  for (let i = 0; i < attendancePayloads.length; i += CHUNK_SIZE) {
+    const chunk = attendancePayloads.slice(i, i + CHUNK_SIZE);
+    const { error: attError } = await supabase
+      .from("attendance_records")
+      .upsert(chunk, { onConflict: "employee_id,attendance_date" });
+
+    if (!attError) {
+      seededAttendance += chunk.length;
+    } else {
+      errors.push(`Attendance batch [${i}..${i + chunk.length}] failed: ${attError.message}`);
     }
   }
 

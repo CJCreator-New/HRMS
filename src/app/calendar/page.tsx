@@ -64,22 +64,22 @@ export default function CalendarManagementPage() {
   const loadCalendarData = async () => {
     setLoading(true);
     const res = await getCalendarDataAction();
-    const rawHols: any[] = (res as any).holidays || [];
+    const rawHols = res.holidays || [];
     setHolidays(
       rawHols.length > 0
-        ? rawHols.map((h: any) => ({
+        ? rawHols.map((h: { id: string; name: string; holiday_date?: string; date?: string; is_optional?: boolean }) => ({
             id: h.id,
             name: h.name,
-            date: h.holiday_date,
-            is_optional: h.is_optional,
+            date: h.holiday_date || h.date || "",
+            is_optional: Boolean(h.is_optional),
           }))
         : SAMPLE_HOLIDAYS
     );
-    const rawTmpls: any[] = (res as any).templates || [];
+    const rawTmpls = res.templates || [];
     setTemplates(
-      rawTmpls.map((t: any) => ({
+      rawTmpls.map((t: { id: string; code?: string; name: string; working_days_description?: string; alt_saturday_rule?: string; total_optional_holidays_allowed?: number; optional_selection_deadline_date?: string; is_default?: boolean }) => ({
         id: t.id,
-        code: t.code,
+        code: t.code || "",
         name: t.name,
         standard_working_days: t.working_days_description || "Monday to Friday",
         alt_saturday_rule: t.alt_saturday_rule || "none",
@@ -88,8 +88,8 @@ export default function CalendarManagementPage() {
         is_default: t.is_default || false,
       }))
     );
-    setDefaultTemplateId((res as any).defaultTemplateId || "");
-    setSelectedOptional((res as any).selectedOptional || []);
+    setDefaultTemplateId(res.defaultTemplateId || "");
+    setSelectedOptional(res.selectedOptional || []);
     setLoading(false);
   };
 
@@ -101,12 +101,13 @@ export default function CalendarManagementPage() {
     e.preventDefault();
     if (!newHolName || !newHolDate) return;
     const res = await createHolidayAction(defaultTemplateId, newHolName, newHolDate, newHolIsOpt);
-    if ("error" in res) {
+    if ("error" in res && res.error) {
       toast(res.error, "error");
     } else {
+      const createdRecord = "record" in res ? (res.record as { id?: string } | undefined) : undefined;
       setHolidays([
         ...holidays,
-        { id: (res as any).record?.id || Date.now().toString(), name: newHolName, date: newHolDate, is_optional: newHolIsOpt },
+        { id: createdRecord?.id || Date.now().toString(), name: newHolName, date: newHolDate, is_optional: newHolIsOpt },
       ]);
       setNewHolName("");
       setNewHolDate("");

@@ -40,9 +40,30 @@ export function PunchButton({
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
+  const timeoutRef = React.useRef<NodeJS.Timeout | number | null>(null);
+  const refreshTimerRef = React.useRef<NodeJS.Timeout | number | null>(null);
+
+  // Sync state if props change from external updates
+  React.useEffect(() => {
+    setIsCheckedIn(initialCheckedIn);
+  }, [initialCheckedIn]);
+
+  React.useEffect(() => {
+    setCurrentRecordId(activeRecordId);
+  }, [activeRecordId]);
+
+  // Clean up timers on unmount to prevent leaks
+  React.useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    };
+  }, []);
+
   const flash = (msg: string) => {
     setNotice(msg);
-    setTimeout(() => setNotice(""), 3500);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => setNotice(""), 3500);
   };
 
   const handlePunch = async (type: "check_in" | "check_out") => {
@@ -79,8 +100,9 @@ export function PunchButton({
         router.refresh();
         onPunchSuccess?.();
       }
-    } catch (e: any) {
-      setError(e?.message || "Unexpected punch error");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Unexpected punch error";
+      setError(message);
     } finally {
       setBusy(null);
     }
@@ -90,7 +112,8 @@ export function PunchButton({
     setBusy("refresh");
     setNotice("");
     router.refresh();
-    setTimeout(() => setBusy(null), 600);
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => setBusy(null), 600);
   };
 
   return (

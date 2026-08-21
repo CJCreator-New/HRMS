@@ -8,8 +8,9 @@ async function globalSetup(config: FullConfig) {
     const seederScript = path.resolve(__dirname, "../scripts/seed-mock-data.mjs");
     execSync(`node "${seederScript}"`, { stdio: "inherit" });
     console.log("[Playwright globalSetup] E2E Environment Seeding Complete.");
-  } catch (err: any) {
-    console.warn(`[Playwright globalSetup] Seeding Note: ${err.message}`);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[Playwright globalSetup] Seeding Note: ${message}`);
   }
 }
 

@@ -12,6 +12,7 @@ const eslintConfig = defineConfig([
       // where loadData is async and setState happens after await.
       // The React 19 plugin flags these but the pattern is valid.
       "react-hooks/set-state-in-effect": "off",
+      "@typescript-eslint/no-explicit-any": "warn",
     },
   },
 

@@ -72,21 +72,22 @@ export function BatchUploadDrawer<T = any>({
       let buffer: ArrayBuffer;
       if (selectedFile.name.endsWith(".csv")) {
         const text = await selectedFile.text();
-        const rep = parseAndValidateBatchFile<T>(text, schema);
+        const rep = await parseAndValidateBatchFile<T>(text, schema);
         setReport(rep);
       } else {
         buffer = await selectedFile.arrayBuffer();
-        const rep = parseAndValidateBatchFile<T>(buffer, schema);
+        const rep = await parseAndValidateBatchFile<T>(buffer, schema);
         setReport(rep);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Invalid format";
       setReport({
         totalRows: 0,
         validCount: 0,
         invalidCount: 0,
         rows: [],
         isValid: false,
-        errors: [`Failed to parse file: ${err?.message || "Invalid format"}`],
+        errors: [`Failed to parse file: ${message}`],
       });
     } finally {
       setIsParsing(false);
@@ -135,13 +136,14 @@ export function BatchUploadDrawer<T = any>({
       if (normalizedResult.success && onSuccess) {
         onSuccess(normalizedResult);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "An unexpected error occurred during commit.";
       setCommitResult({
         success: false,
         total: validRows.length,
         successCount: 0,
         errorCount: validRows.length,
-        errors: [err?.message || "An unexpected error occurred during commit."],
+        errors: [message],
       });
     } finally {
       setIsCommitting(false);

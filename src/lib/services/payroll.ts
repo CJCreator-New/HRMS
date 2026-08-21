@@ -67,8 +67,30 @@ export async function getPayrollDashboard(
             .order("created_at", { ascending: false }),
     ]);
 
+    const typedPeriods = (periods || []) as Array<{
+      id: string;
+      year: number;
+      month: number;
+      status: PayrollPeriod["status"];
+      total_employees?: number | null;
+      active_revision_number?: number | null;
+    }>;
+
+    const typedPayslips = (payslips || []) as Array<{
+      id: string;
+      employees?: { full_name?: string | null; employee_code?: string | null } | null;
+      payable_units?: number | null;
+      payable_days?: number | null;
+      lop_units?: number | null;
+      lop_days?: number | null;
+      gross_earnings?: number | null;
+      gross_pay?: number | null;
+      total_deductions?: number | null;
+      net_pay?: number | null;
+    }>;
+
     return {
-      periods: (periods || []).map((p: any) => ({
+      periods: typedPeriods.map((p) => ({
         id: p.id,
         year: p.year,
         month: p.month,
@@ -77,7 +99,7 @@ export async function getPayrollDashboard(
         total_employees: p.total_employees || 0,
         active_revision: p.active_revision_number || 1,
       })),
-      payslips: (payslips || []).map((p: any) => ({
+      payslips: typedPayslips.map((p) => ({
         id: p.id,
         employee_code: p.employees?.employee_code || "",
         employee_name: p.employees?.full_name || "",

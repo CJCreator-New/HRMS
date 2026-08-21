@@ -88,8 +88,8 @@ export function DataTable<T = any>({
     if (isServer || !sortColumn || !sortDir) return rows;
     const dir = sortDir === "asc" ? 1 : -1;
     return [...rows].sort((a, b) => {
-      const va = getSortValue ? getSortValue(a, sortColumn) : (a as any)[sortColumn];
-      const vb = getSortValue ? getSortValue(b, sortColumn) : (b as any)[sortColumn];
+      const va = getSortValue ? getSortValue(a, sortColumn) : (a as Record<string, unknown>)[sortColumn];
+      const vb = getSortValue ? getSortValue(b, sortColumn) : (b as Record<string, unknown>)[sortColumn];
       if (va == null && vb == null) return 0;
       if (va == null) return 1;
       if (vb == null) return -1;

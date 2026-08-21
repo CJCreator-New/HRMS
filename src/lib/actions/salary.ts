@@ -88,6 +88,54 @@ export async function bulkAssignSalaryStructure(
   const errors: string[] = [];
   const rowResults: BatchCommitResult<SalaryImportRow>["rowResults"] = [];
 
+  // --- Bulk Pre-fetch to eliminate N+1 DB queries ---
+  const allEmpCodes = new Set<string>();
+  for (const row of rows) {
+    const code = sanitizeInput(row.employee_code || "").trim();
+    if (code) allEmpCodes.add(code);
+  }
+
+  const { data: preEmployees } = allEmpCodes.size > 0
+    ? await supabase
+        .from("employees")
+        .select("id, employee_code, full_name")
+        .in("employee_code", Array.from(allEmpCodes))
+    : { data: [] };
+
+  const safePreEmployees = Array.isArray(preEmployees)
+    ? preEmployees
+    : preEmployees && typeof preEmployees === "object"
+    ? [preEmployees]
+    : [];
+
+  const empMap = new Map<string, { id: string; employee_code: string; full_name: string }>();
+  for (const e of safePreEmployees) {
+    if (e.employee_code) empMap.set(e.employee_code.toLowerCase(), e);
+  }
+
+  const resolvedEmpIds = Array.from(empMap.values()).map((e) => e.id);
+  const { data: allSalaryStructures } = resolvedEmpIds.length > 0
+    ? await supabase
+        .from("employee_salary_structures")
+        .select("id, employee_id, effective_from, effective_to, version_number")
+        .in("employee_id", resolvedEmpIds)
+    : { data: [] };
+
+  type SalaryVersionRow = { id: string; employee_id?: string; effective_from: string; effective_to: string | null; version_number?: number };
+  const safeSalaryStructures = Array.isArray(allSalaryStructures)
+    ? allSalaryStructures
+    : allSalaryStructures && typeof allSalaryStructures === "object"
+    ? [allSalaryStructures]
+    : [];
+
+  const salaryHistoryMap = new Map<string, SalaryVersionRow[]>();
+  for (const v of safeSalaryStructures as SalaryVersionRow[]) {
+    if (v.employee_id) {
+      if (!salaryHistoryMap.has(v.employee_id)) salaryHistoryMap.set(v.employee_id, []);
+      salaryHistoryMap.get(v.employee_id)!.push(v);
+    }
+  }
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const rowNum = i + 1;
@@ -104,14 +152,21 @@ export async function bulkAssignSalaryStructure(
       continue;
     }
 
-    // 1. Resolve employee
-    const { data: emp, error: empErr } = await supabase
-      .from("employees")
-      .select("id, employee_code, full_name")
-      .eq("employee_code", empCode)
-      .maybeSingle();
+    // 1. Resolve employee (pre-fetch map with fallback)
+    let emp = empMap.get(empCode.toLowerCase());
+    if (!emp) {
+      const { data: directEmp } = await supabase
+        .from("employees")
+        .select("id, employee_code, full_name")
+        .eq("employee_code", empCode)
+        .maybeSingle();
+      if (directEmp) {
+        emp = directEmp;
+        empMap.set(empCode.toLowerCase(), directEmp);
+      }
+    }
 
-    if (empErr || !emp) {
+    if (!emp) {
       errorCount++;
       const msg = `Row #${rowNum}: Employee code '${empCode}' not found.`;
       errors.push(msg);
@@ -119,18 +174,18 @@ export async function bulkAssignSalaryStructure(
       continue;
     }
 
-    // 2. Fetch existing salary structures to check for overlapping ranges
-    const { data: existingVersions, error: fetchErr } = await supabase
-      .from("employee_salary_structures")
-      .select("id, effective_from, effective_to, version_number")
-      .eq("employee_id", emp.id);
-
-    if (fetchErr) {
-      errorCount++;
-      const msg = `Row #${rowNum}: Failed to verify salary history for '${empCode}': ${fetchErr.message}`;
-      errors.push(msg);
-      rowResults.push({ rowNumber: rowNum, status: "failed", message: msg, data: row });
-      continue;
+    // 2. Fetch existing salary structures from pre-fetched history map with fallback
+    let existingVersions: SalaryVersionRow[] = salaryHistoryMap.get(emp.id) || [];
+    if (existingVersions.length === 0) {
+      const { data: directVersions } = await supabase
+        .from("employee_salary_structures")
+        .select("id, employee_id, effective_from, effective_to, version_number")
+        .eq("employee_id", emp.id);
+      const safeDirect = (Array.isArray(directVersions) ? directVersions : directVersions ? [directVersions] : []) as SalaryVersionRow[];
+      if (safeDirect.length > 0) {
+        existingVersions = safeDirect;
+        salaryHistoryMap.set(emp.id, safeDirect);
+      }
     }
 
     const newStart = new Date(effectiveFrom).getTime();
@@ -139,7 +194,7 @@ export async function bulkAssignSalaryStructure(
     let hasOverlapConflict = false;
     let openVersionToClose: { id: string; effective_from: string } | null = null;
 
-    for (const v of existingVersions || []) {
+    for (const v of existingVersions) {
       const vStart = new Date(v.effective_from).getTime();
       const vEnd = v.effective_to ? new Date(v.effective_to).getTime() : Infinity;
 
@@ -176,7 +231,7 @@ export async function bulkAssignSalaryStructure(
 
     // 3. Compute salary breakdown & insert new record
     const { monthlyGross, basicMonthly } = computeSalaryBreakdown(annualCtc);
-    const nextVersionNum = (existingVersions?.length || 0) + 1;
+    const nextVersionNum = existingVersions.length + 1;
 
     const { error: insertErr } = await supabase
       .from("employee_salary_structures")

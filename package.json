@@ -6,6 +6,7 @@
     "dev": "next dev -p 3000 -H 0.0.0.0",
     "build": "next build",
     "lint": "eslint src",
+    "verify:permissions": "node scripts/verify-permissions-sync.mjs",
     "db:sync": "node scripts/db-apply.mjs",
     "seed:mock": "node scripts/seed-mock-data.mjs",
     "test:unit": "vitest run",
@@ -15,6 +16,7 @@
     "test:e2e:full": "playwright test",
     "test:e2e:rbac": "playwright test e2e/specs/rbac --project=chromium",
     "test:e2e:nfr": "playwright test e2e/specs/nfr --project=chromium",
+    "test:golden-path": "playwright test e2e/specs/cross-module/golden-path-routing-trace.spec.ts",
     "test:audit": "playwright test e2e/specs/cross-module e2e/specs/rbac --project=chromium"
   },
   "dependencies": {
@@ -23,13 +25,14 @@
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.2",
     "clsx": "^2.1.1",
+    "exceljs": "^4.4.0",
     "lucide-react": "^0.474.0",
     "next": "^16.3.0",
+    "papaparse": "^5.6.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^3.10.1",
-    "tailwind-merge": "^2.6.0",
-    "xlsx": "^0.18.5"
+    "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.1",
@@ -39,6 +42,7 @@
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.4",
     "@types/node": "^20.17.16",
+    "@types/papaparse": "^5.5.2",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitest/coverage-v8": "^4.1.10",
@@ -50,5 +54,8 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3",
     "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }

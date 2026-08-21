@@ -114,9 +114,9 @@ export default function LoginPage() {
       const durationMs = Math.round(endTime - startTime);
 
       if (res?.error) {
-        const code = (res as any)?.errorCode || "AUTH_ERROR";
-        const status = (res as any)?.status;
-        const rawError = (res as any)?.rawError;
+        const code = res.errorCode || "AUTH_ERROR";
+        const status = res.status;
+        const rawError = res.rawError;
 
         // Classify the error (CORS block vs Network offline vs Server rejection vs Invalid Credentials)
         const classification = classifyAuthError(res, context, durationMs);
@@ -164,7 +164,7 @@ export default function LoginPage() {
           errorClassification: "NONE",
           summary: "Authentication handshake succeeded and session established.",
           details: {
-            diagnosticMeta: (res as any)?.diagnostic || "standard_auth",
+            diagnosticMeta: (res.diagnostic as string) || "standard_auth",
           },
         };
 
@@ -187,7 +187,7 @@ export default function LoginPage() {
         // eslint-disable-next-line @next/next/no-location-assign-relative-destination
         window.location.href = "/";
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       const endTime = performance.now();
       const durationMs = Math.round(endTime - startTime);
       const classification = classifyAuthError(err, context, durationMs);
@@ -206,15 +206,17 @@ export default function LoginPage() {
 
       logAuthDiagnostic(diagnosticReport);
 
+      const errMessage = err instanceof Error ? err.message : String(err);
+
       console.error("[Auth Diagnostic: Uncaught Network Exception]", {
         "window.location.origin": typeof window !== "undefined" ? window.location.origin : context.clientOrigin,
         "targetSupabaseUrl": context.supabaseUrl,
         "classification": classification.type,
-        "exceptionMessage": err?.message || String(err),
+        "exceptionMessage": errMessage,
         "duration": `${durationMs}ms`,
       });
 
-      const fallbackMsg = err?.message || "An unexpected error occurred during sign-in. Please try again.";
+      const fallbackMsg = errMessage || "An unexpected error occurred during sign-in. Please try again.";
       setLastDiagnostic(diagnosticReport);
       setAuthStage("error");
       setAuthProgress(100);
@@ -292,8 +294,8 @@ export default function LoginPage() {
         setResetSuccess(msg);
         toast(msg, "success");
       }
-    } catch (err: any) {
-      const errText = err?.message || "Failed to submit password reset request.";
+    } catch (err: unknown) {
+      const errText = err instanceof Error ? err.message : "Failed to submit password reset request.";
       setResetError(errText);
       toast(errText, "error");
     } finally {
@@ -600,7 +602,7 @@ export default function LoginPage() {
                           <span className="text-ink-muted">Latency:</span>
                           <span>{lastDiagnostic.timing.durationMs}ms</span>
                         </div>
-                        {lastDiagnostic.details?.diagnosticAdvice && (
+                        {typeof lastDiagnostic.details?.diagnosticAdvice === "string" && (
                           <div className="pt-1 text-[10px] text-ink font-sans bg-surface-muted p-1.5 rounded border border-line">
                             <span className="font-bold">Advice: </span>
                             {lastDiagnostic.details.diagnosticAdvice}

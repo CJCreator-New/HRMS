@@ -41,7 +41,7 @@ interface SeparationRecord {
 }
 
 export default function OffboardingPage() {
-  const { can, isHrAdmin } = usePermission();
+  const { can } = usePermission();
   const [separations, setSeparations] = useState<SeparationRecord[]>([]);
   const [employeesList, setEmployeesList] = useState<Array<{ id: string; name: string; code: string }>>([]);
   const [selectedSep, setSelectedSep] = useState<SeparationRecord | null>(null);
@@ -64,7 +64,7 @@ export default function OffboardingPage() {
         getEmployeesAction(),
       ]);
 
-      const rawSeps: any[] = (offboardRes as any).separations || [];
+      const rawSeps = (offboardRes.separations || []) as unknown as SeparationRecord[];
       if (rawSeps.length > 0) {
         setSeparations(rawSeps);
         setSelectedSep(rawSeps[0] || null);
@@ -74,10 +74,10 @@ export default function OffboardingPage() {
       }
 
       if (empRes?.employees) {
-        const mappedEmps = (empRes.employees || []).map((e: any) => ({
+        const mappedEmps = (empRes.employees || []).map((e) => ({
           id: e.id,
-          name: e.full_name,
-          code: e.employee_code,
+          name: e.full_name || "",
+          code: e.employee_code || "",
         }));
         setEmployeesList(mappedEmps);
         if (mappedEmps.length > 0) {
@@ -122,7 +122,7 @@ export default function OffboardingPage() {
 
   const loadData = async () => {
     const res = await getOffboardingDataAction();
-    const rawSeps: any[] = (res as any).separations || [];
+    const rawSeps = (res.separations || []) as unknown as SeparationRecord[];
     setSeparations(rawSeps);
     setSelectedSep(rawSeps.find((s) => s.id === selectedSep?.id) || rawSeps[0] || null);
   };
@@ -340,7 +340,7 @@ export default function OffboardingPage() {
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       {(["it", "finance", "admin", "hr"] as const).map((dept) => {
                         const isCleared = selectedSep.clearance[dept];
-                        const canToggle = can("offboarding.manage") || isHrAdmin;
+                        const canToggle = can("offboarding.manage");
                         return (
                           <button
                             key={dept}
@@ -389,7 +389,7 @@ export default function OffboardingPage() {
                   </div>
 
                   <div className="flex items-center justify-between pt-2">
-                    {(can("offboarding.manage") || isHrAdmin) && (
+                    {can("offboarding.manage") && (
                       <button
                         onClick={() => handleSimulateStaleInvalidation(selectedSep.id)}
                         className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-semibold rounded-lg border border-amber-200 transition"
@@ -398,7 +398,7 @@ export default function OffboardingPage() {
                       </button>
                     )}
 
-                    {can("ff.approve") || isHrAdmin ? (
+                    {can("ff.approve") ? (
                       <button
                         data-testid="approve-ff-btn"
                         onClick={() => handleApproveFF(selectedSep.id)}

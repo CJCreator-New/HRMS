@@ -48,12 +48,12 @@ describe("ReadOnlyBanner", () => {
     expect(screen.queryByText(/Payroll Admin View/)).not.toBeInTheDocument();
   });
 
-  it("hides the banner for a user with HR admin role even when payroll admin is held", async () => {
+  it("hides the banner when active role is HR admin even if payroll admin is also assigned", async () => {
     mocks.getCurrentUserRolesAction.mockResolvedValue({
-      roles: ["payroll_admin", "hr"],
+      roles: ["hr", "payroll_admin"],
       mustChangePassword: false,
     });
-    renderWithRoles(["payroll_admin", "hr"]);
+    renderWithRoles(["hr", "payroll_admin"]);
 
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByText(/Payroll Admin View/)).not.toBeInTheDocument();

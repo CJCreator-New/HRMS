@@ -143,10 +143,108 @@ export async function bulkAssignCalendarTemplate(
   const errors: string[] = [];
   const rowResults: BatchCommitResult<CalendarAssignmentImportRow>["rowResults"] = [];
 
-  // Fetch all templates to match by code or name
-  const { data: allTemplates } = await supabase
-    .from("work_calendar_templates")
-    .select("id, code, name");
+  // 1. Pre-fetch templates, employees, and departments in bulk
+  const empTargetCodes = new Set<string>();
+  const deptTargetNames = new Set<string>();
+
+  for (const row of rows) {
+    const scope = (row.scope || "employee").toLowerCase();
+    const targetCode = sanitizeInput(row.target_code || "").trim();
+    if (targetCode) {
+      if (scope === "employee") empTargetCodes.add(targetCode);
+      if (scope === "department") deptTargetNames.add(targetCode);
+    }
+  }
+
+  const [
+    { data: allTemplates },
+    { data: preEmployees },
+    { data: preDepartments },
+  ] = await Promise.all([
+    supabase.from("work_calendar_templates").select("id, code, name"),
+    empTargetCodes.size > 0
+      ? supabase.from("employees").select("id, employee_code").in("employee_code", Array.from(empTargetCodes))
+      : Promise.resolve({ data: [] }),
+    deptTargetNames.size > 0
+      ? supabase.from("departments").select("id, name").in("name", Array.from(deptTargetNames))
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const safeAllTemplates = Array.isArray(allTemplates)
+    ? allTemplates
+    : allTemplates && typeof allTemplates === "object"
+    ? [allTemplates]
+    : [];
+
+  const safePreEmployees = Array.isArray(preEmployees)
+    ? preEmployees
+    : preEmployees && typeof preEmployees === "object"
+    ? [preEmployees]
+    : [];
+
+  const empMap = new Map<string, { id: string; employee_code: string }>();
+  for (const e of safePreEmployees) {
+    if (e.employee_code) empMap.set(e.employee_code.toLowerCase(), e);
+  }
+
+  const safePreDepartments = Array.isArray(preDepartments)
+    ? preDepartments
+    : preDepartments && typeof preDepartments === "object"
+    ? [preDepartments]
+    : [];
+
+  const deptMap = new Map<string, { id: string; name: string }>();
+  for (const d of safePreDepartments) {
+    if (d.name) deptMap.set(d.name.toLowerCase(), d);
+  }
+
+  // Pre-fetch department employee assignments if any departments targeted
+  const deptIds = Array.from(deptMap.values()).map((d) => d.id);
+  const { data: deptAssignments } = deptIds.length > 0
+    ? await supabase
+        .from("employee_department_assignment")
+        .select("department_id, employee_id")
+        .in("department_id", deptIds)
+        .is("effective_to", null)
+    : { data: [] };
+
+  const safeDeptAssignments = Array.isArray(deptAssignments)
+    ? deptAssignments
+    : deptAssignments && typeof deptAssignments === "object"
+    ? [deptAssignments]
+    : [];
+
+  const deptToEmpsMap = new Map<string, string[]>();
+  for (const a of safeDeptAssignments) {
+    if (!deptToEmpsMap.has(a.department_id)) deptToEmpsMap.set(a.department_id, []);
+    deptToEmpsMap.get(a.department_id)!.push(a.employee_id);
+  }
+
+  // Collect all possible employee IDs to pre-fetch open calendar assignments
+  const allTargetEmpIds = new Set<string>();
+  for (const e of empMap.values()) allTargetEmpIds.add(e.id);
+  for (const empIds of deptToEmpsMap.values()) {
+    for (const id of empIds) allTargetEmpIds.add(id);
+  }
+
+  const { data: openCalendarAssignments } = allTargetEmpIds.size > 0
+    ? await supabase
+        .from("employee_work_calendar_assignment")
+        .select("id, employee_id, effective_from")
+        .in("employee_id", Array.from(allTargetEmpIds))
+        .is("effective_to", null)
+    : { data: [] };
+
+  const safeOpenCalendarAssignments = Array.isArray(openCalendarAssignments)
+    ? openCalendarAssignments
+    : openCalendarAssignments && typeof openCalendarAssignments === "object"
+    ? [openCalendarAssignments]
+    : [];
+
+  const openCalendarMap = new Map<string, { id: string; effective_from: string }>();
+  for (const a of safeOpenCalendarAssignments) {
+    openCalendarMap.set(a.employee_id, a);
+  }
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -166,7 +264,7 @@ export async function bulkAssignCalendarTemplate(
 
     // 1. Resolve calendar template by code or name
     const matchedTemplate = (allTemplates || []).find(
-      (t: any) =>
+      (t: { code?: string | null; name?: string | null }) =>
         t.code?.toLowerCase() === templateName.toLowerCase() ||
         t.name?.toLowerCase() === templateName.toLowerCase()
     );
@@ -179,17 +277,24 @@ export async function bulkAssignCalendarTemplate(
       continue;
     }
 
-    // 2. Resolve employee ID list based on scope
+    // 2. Resolve employee ID list based on scope from pre-fetched maps
     let targetEmployeeIds: string[] = [];
 
     if (scope === "employee") {
-      const { data: emp, error: empErr } = await supabase
-        .from("employees")
-        .select("id, employee_code")
-        .eq("employee_code", targetCode)
-        .maybeSingle();
+      let emp = empMap.get(targetCode.toLowerCase());
+      if (!emp) {
+        const { data: directEmp } = await supabase
+          .from("employees")
+          .select("id, employee_code")
+          .eq("employee_code", targetCode)
+          .maybeSingle();
+        if (directEmp) {
+          emp = directEmp;
+          empMap.set(targetCode.toLowerCase(), directEmp);
+        }
+      }
 
-      if (empErr || !emp) {
+      if (!emp) {
         errorCount++;
         const msg = `Row #${rowNum}: Employee code '${targetCode}' not found.`;
         errors.push(msg);
@@ -198,14 +303,20 @@ export async function bulkAssignCalendarTemplate(
       }
       targetEmployeeIds = [emp.id];
     } else if (scope === "department") {
-      // Resolve department
-      const { data: dept, error: deptErr } = await supabase
-        .from("departments")
-        .select("id, name")
-        .eq("name", targetCode)
-        .maybeSingle();
+      let dept = deptMap.get(targetCode.toLowerCase());
+      if (!dept) {
+        const { data: directDept } = await supabase
+          .from("departments")
+          .select("id, name")
+          .eq("name", targetCode)
+          .maybeSingle();
+        if (directDept) {
+          dept = directDept;
+          deptMap.set(targetCode.toLowerCase(), directDept);
+        }
+      }
 
-      if (deptErr || !dept) {
+      if (!dept) {
         errorCount++;
         const msg = `Row #${rowNum}: Department '${targetCode}' not found.`;
         errors.push(msg);
@@ -213,14 +324,19 @@ export async function bulkAssignCalendarTemplate(
         continue;
       }
 
-      // Query active employees in department
-      const { data: deptAssignments } = await supabase
-        .from("employee_department_assignment")
-        .select("employee_id")
-        .eq("department_id", dept.id)
-        .is("effective_to", null);
+      let deptEmps = deptToEmpsMap.get(dept.id);
+      if (!deptEmps || deptEmps.length === 0) {
+        const { data: directDeptAssigns } = await supabase
+          .from("employee_department_assignment")
+          .select("employee_id")
+          .eq("department_id", dept.id)
+          .is("effective_to", null);
+        const safeAssigns = Array.isArray(directDeptAssigns) ? directDeptAssigns : directDeptAssigns ? [directDeptAssigns] : [];
+        deptEmps = safeAssigns.map((a: { employee_id: string }) => a.employee_id);
+        deptToEmpsMap.set(dept.id, deptEmps);
+      }
 
-      if (!deptAssignments || deptAssignments.length === 0) {
+      if (!deptEmps || deptEmps.length === 0) {
         errorCount++;
         const msg = `Row #${rowNum}: No active employees found in department '${targetCode}'.`;
         errors.push(msg);
@@ -228,7 +344,7 @@ export async function bulkAssignCalendarTemplate(
         continue;
       }
 
-      targetEmployeeIds = Array.from(new Set(deptAssignments.map((a: any) => a.employee_id)));
+      targetEmployeeIds = Array.from(new Set(deptEmps));
     } else {
       errorCount++;
       const msg = `Row #${rowNum}: Invalid scope '${scope}'. Must be 'employee' or 'department'.`;
@@ -242,13 +358,16 @@ export async function bulkAssignCalendarTemplate(
     let assignFailed = false;
 
     for (const empId of targetEmployeeIds) {
-      // Close open previous calendar assignment
-      const { data: openAssign } = await supabase
-        .from("employee_work_calendar_assignment")
-        .select("id, effective_from")
-        .eq("employee_id", empId)
-        .is("effective_to", null)
-        .maybeSingle();
+      let openAssign = openCalendarMap.get(empId);
+      if (!openAssign) {
+        const { data: directOpenAssign } = await supabase
+          .from("employee_work_calendar_assignment")
+          .select("id, effective_from")
+          .eq("employee_id", empId)
+          .is("effective_to", null)
+          .maybeSingle();
+        if (directOpenAssign) openAssign = directOpenAssign;
+      }
 
       if (openAssign && prevDay) {
         await supabase

@@ -2,8 +2,8 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { cookies } from "next/headers";
-import { hasMockPermission, resolveMockEmployeeIdFromEmail, resolveMockRolesFromEmail } from "@/lib/services/mock-rbac";
-import { validateMockCookieValue } from "@/lib/auth/mock-cookie";
+import { hasMockPermission } from "@/lib/services/mock-rbac";
+import { validateMockCookieValue, resolveMockSession } from "@/lib/auth/mock-cookie";
 
 export interface AuthenticatedCaller {
   employeeId: string | null;
@@ -18,13 +18,9 @@ export async function getAuthenticatedCaller(): Promise<AuthenticatedCaller | nu
   try {
     const cookieStore = await cookies();
     const rawCookie = cookieStore.get("sb-access-token")?.value;
-    if (rawCookie) {
-      const mockEmail = await validateMockCookieValue(rawCookie);
-      if (mockEmail && mockEmail.includes("@")) {
-        const employeeId = resolveMockEmployeeIdFromEmail(mockEmail);
-        const { roles } = resolveMockRolesFromEmail(mockEmail);
-        return { employeeId, email: mockEmail, roles };
-      }
+    const mockSession = await resolveMockSession(rawCookie);
+    if (mockSession) {
+      return mockSession;
     }
   } catch {
     // ignore
@@ -51,7 +47,12 @@ export async function getAuthenticatedCaller(): Promise<AuthenticatedCaller | nu
           .eq("employee_id", emp.id)
       : { data: null };
 
-    const roles = empRoles?.map((r: any) => r.roles.code) || ["employee"];
+    const roles =
+      empRoles
+        ?.map((r: { roles: { code?: string } | { code?: string }[] | null }) =>
+          Array.isArray(r.roles) ? r.roles[0]?.code : r.roles?.code
+        )
+        .filter((c): c is string => Boolean(c)) || ["employee"];
 
     return {
       employeeId: emp?.id || null,
@@ -73,8 +74,7 @@ export async function assertCallerIdentity(
 ): Promise<{ error: string } | null> {
   const caller = await getAuthenticatedCaller();
   if (!caller || !caller.employeeId) {
-    // If not unauthenticated, verify if assertPermission handles it
-    return null;
+    return { error: "Unauthenticated: Valid session required" };
   }
 
   // If caller matches target, authorized

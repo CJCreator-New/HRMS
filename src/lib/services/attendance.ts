@@ -71,18 +71,37 @@ export async function getAttendanceDashboard(userInfo: CurrentUserInfo): Promise
         .order("created_at", { ascending: false }),
     ]);
 
-    const todayRec = (records || []).find((r: any) => r.attendance_date === todayIso);
+    const typedRecords = (records || []) as Array<{
+      id: string;
+      attendance_date: string;
+      check_in_time?: string | null;
+      check_out_time?: string | null;
+      status: AttendanceRecordView["status"];
+    }>;
+
+    const typedCorrections = (corrections || []) as Array<{
+      id: string;
+      attendance_date?: string | null;
+      created_at?: string | null;
+      requested_check_in?: string | null;
+      requested_check_out?: string | null;
+      reason: string;
+      status: CorrectionView["status"];
+      employees?: { full_name?: string | null } | null;
+    }>;
+
+    const todayRec = typedRecords.find((r) => r.attendance_date === todayIso);
 
     return {
       employeeId: userInfo.employeeId,
-      records: (records || []).map((r: any) => ({
+      records: typedRecords.map((r) => ({
         id: r.id,
         date: r.attendance_date,
         check_in: time(r.check_in_time),
         check_out: time(r.check_out_time),
         status: r.status,
       })),
-      corrections: (corrections || []).map((c: any) => ({
+      corrections: typedCorrections.map((c) => ({
         id: c.id,
         employee_name: c.employees?.full_name || "Employee",
         date: dateOf(c.attendance_date, c.created_at?.split("T")[0]),

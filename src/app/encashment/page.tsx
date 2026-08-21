@@ -44,26 +44,26 @@ export default function EncashmentPage() {
   const loadData = async () => {
     setLoading(true);
     const res = await getEncashmentDataAction();
-    setEmployeeId((res as any).employeeId || null);
-    const rawEnc: any[] = (res as any).encashments || [];
-    setEncashments(rawEnc.map((e: any) => ({
+    setEmployeeId(res.employeeId || null);
+    const rawEnc = res.encashments || [];
+    setEncashments(rawEnc.map((e: { id: string; employees?: { full_name?: string | null } | null; days_to_encash: number; encashment_trigger?: string; daily_rate?: number; total_amount?: number; status: string; created_at?: string }) => ({
       id: e.id,
       employee_name: e.employees?.full_name || "Me",
       leave_type: "Earned Leave (EL)",
       days: e.days_to_encash,
-      trigger_type: e.encashment_trigger,
-      daily_rate: e.daily_rate,
-      total_amount: e.total_amount,
-      status: e.status,
+      trigger_type: (e.encashment_trigger as "annual_window" | "fnf") || "annual_window",
+      daily_rate: e.daily_rate || 0,
+      total_amount: e.total_amount || 0,
+      status: (e.status as EncashmentRequest["status"]) || "pending",
       created_at: e.created_at?.split("T")[0] || "",
     })));
-    const rawLogs: any[] = (res as any).carryForwardLogs || [];
-    setLogs(rawLogs.map((l: any) => ({
+    const rawLogs = res.carryForwardLogs || [];
+    setLogs(rawLogs.map((l: { id: string; employees?: { full_name?: string | null } | null; year?: number; leave_year?: number; unused_days?: number; carried_forward_days?: number; lapsed_days?: number; created_at?: string }) => ({
       id: l.id,
       employee_name: l.employees?.full_name || "",
       year: l.year ?? l.leave_year ?? new Date().getFullYear(),
       unused: l.unused_days || 0,
-      carried_forward: l.carry_forward_days ?? l.carried_forward_days ?? 0,
+      carried_forward: l.carried_forward_days || 0,
       lapsed: l.lapsed_days || 0,
       processed_at: l.created_at?.split("T")[0] || "",
     })));
@@ -154,7 +154,7 @@ export default function EncashmentPage() {
               <label className="block font-semibold text-ink-secondary mb-1">Encashment Trigger *</label>
               <select
                 value={triggerType}
-                onChange={(e) => setTriggerType(e.target.value as any)}
+                onChange={(e) => setTriggerType(e.target.value as "annual_window" | "fnf")}
                 className="w-full border border-line-strong rounded-lg px-3 py-2 bg-surface font-medium"
               >
                 <option value="annual_window">Annual Encashment Window</option>

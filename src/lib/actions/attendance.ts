@@ -5,7 +5,17 @@ import { createClient } from "@/lib/supabase/server";
 import { assertPermission, assertAnyPermission, assertCallerIdentity, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 
-export async function punchCheckInAction(employeeId?: string): Promise<{ success: boolean; error?: string; record?: any }> {
+export interface AttendanceActionRecord {
+  id: string;
+  employee_id: string;
+  attendance_date: string;
+  check_in_time?: string | null;
+  check_out_time?: string | null;
+  status: string;
+  [key: string]: unknown;
+}
+
+export async function punchCheckInAction(employeeId?: string): Promise<{ success: boolean; error?: string; record?: AttendanceActionRecord }> {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { success: false, error: csrfError.error };
 
@@ -63,7 +73,7 @@ export async function punchCheckInAction(employeeId?: string): Promise<{ success
   return { success: true, record };
 }
 
-export async function punchCheckOutAction(attendanceRecordId: string): Promise<{ success: boolean; error?: string; record?: any }> {
+export async function punchCheckOutAction(attendanceRecordId: string): Promise<{ success: boolean; error?: string; record?: AttendanceActionRecord }> {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { success: false, error: csrfError.error };
 

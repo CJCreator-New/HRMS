@@ -64,13 +64,17 @@ export default function EligibilityPage() {
     setLoading(true);
     setError("");
     const res = await getEligibilityDataAction();
-    if ("error" in res) {
+    if ("error" in res && res.error) {
       setError(res.error);
       setLoading(false);
       return;
     }
-    setEmployees((res as any).employees || []);
-    setEligibility((res as any).eligibility || []);
+    if ("employees" in res && res.employees) {
+      setEmployees(res.employees);
+    }
+    if ("eligibility" in res && res.eligibility) {
+      setEligibility(res.eligibility);
+    }
     setLoading(false);
   };
 

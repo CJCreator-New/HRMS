@@ -30,11 +30,22 @@ export default function AuditLogsPage() {
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const debounceRef = React.useRef<NodeJS.Timeout | null>(null);
 
   const loadLogs = async (q?: string) => {
     setLoading(true);
     const res = await getAuditLogsAction({ search: q, limit: 100 });
-    setLogs((res.logs as AuditLogEntry[]) || []);
+    const mapped: AuditLogEntry[] = (res.logs || []).map((l) => ({
+      id: l.id,
+      actor_name: l.actor_name || "System",
+      action: l.action,
+      entity_type: l.entity_type,
+      entity_id: l.entity_id || "",
+      correlation_id: l.correlation_id || "",
+      ip_address: typeof (l.metadata as { ip?: string } | null)?.ip === "string" ? (l.metadata as { ip: string }).ip : "—",
+      created_at: l.created_at || "",
+    }));
+    setLogs(mapped);
     setLoading(false);
   };
 
@@ -65,8 +76,8 @@ export default function AuditLogsPage() {
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
-            clearTimeout((window as any).__auditDebounce);
-            (window as any).__auditDebounce = setTimeout(() => loadLogs(e.target.value), 350);
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            debounceRef.current = setTimeout(() => loadLogs(e.target.value), 350);
           }}
           className="w-full text-xs border-0 focus:outline-none text-ink"
         />
@@ -90,8 +101,8 @@ export default function AuditLogsPage() {
           ]}
           rows={filteredLogs}
           getSortValue={(l: AuditLogEntry, key) => {
-            if (key === "created_at") return l.created_at;
-            return (l as any)[key];
+            if (key in l) return (l[key as keyof AuditLogEntry] ?? "") as string;
+            return "";
           }}
           renderRow={(l: AuditLogEntry) => (
             <tr key={l.id} className="hover:bg-surface-muted/50">

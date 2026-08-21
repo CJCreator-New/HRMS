@@ -18,16 +18,32 @@ vi.mock("@/lib/auth/rate-limit", () => ({
 }));
 // Mock the cookie signing/validation — tests use plain emails as cookie values,
 // so validateMockCookieValue extracts the email from the signed format.
-vi.mock("@/lib/auth/mock-cookie", () => ({
-  signMockCookieValue: vi.fn(async (email: string) => `${email}:dummysig:${Date.now() + 86400000}`),
-  validateMockCookieValue: vi.fn(async (val: string) => {
-    // Extract the email from "email:signature:expiry" format, or return as-is
-    const parts = val.split(":");
-    if (parts.length === 3 && parts[0].includes("@")) return parts[0];
-    if (val.includes("@")) return val;
-    return null;
-  }),
-}));
+vi.mock("@/lib/auth/mock-cookie", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/auth/mock-cookie")>();
+  return {
+    ...actual,
+    signMockCookieValue: vi.fn(async (email: string) => `${email}:dummysig:${Date.now() + 86400000}`),
+    validateMockCookieValue: vi.fn(async (val: string) => {
+      // Extract the email from "email:signature:expiry" format, or return as-is
+      const parts = val.split(":");
+      if (parts.length === 3 && parts[0].includes("@")) return parts[0];
+      if (val.includes("@")) return val;
+      return null;
+    }),
+    resolveMockSession: vi.fn(async (val?: string) => {
+      if (!val) return null;
+      let email: string | null = null;
+      const parts = val.split(":");
+      if (parts.length === 3 && parts[0].includes("@")) email = parts[0];
+      else if (val.includes("@")) email = val;
+      if (!email) return null;
+      const { resolveMockRolesFromEmail, resolveMockEmployeeIdFromEmail } = await import("@/lib/services/mock-rbac");
+      const employeeId = resolveMockEmployeeIdFromEmail(email);
+      const { roles } = resolveMockRolesFromEmail(email);
+      return { email, employeeId, roles };
+    }),
+  };
+});
 
 import { createFakeSupabase, type FakeSupabase } from "./helpers/fake-supabase";
 import {
@@ -303,6 +319,37 @@ describe("getCurrentUserRolesAction", () => {
       mustChangePassword: true,
       userName: "Employee",
       employeeId: "emp-1",
+    });
+  });
+
+  it("resolves roles and employee profile in a single joined query", async () => {
+    const fake = createFakeSupabase({
+      user: { id: "auth-single" },
+      respond: (state) => {
+        if (state.table === "employees" && state.method === "select") {
+          return {
+            data: {
+              id: "emp-single-1",
+              full_name: "Jane HR",
+              must_change_password: false,
+              employee_roles: [
+                { roles: { code: "hr" } },
+                { roles: { code: "payroll_admin" } },
+              ],
+            },
+            error: null,
+          };
+        }
+        return { data: null, error: null };
+      },
+    });
+    mocks.createClient.mockReturnValue(fake);
+
+    await expect(getCurrentUserRolesAction()).resolves.toEqual({
+      roles: ["hr", "payroll_admin"],
+      mustChangePassword: false,
+      userName: "Jane HR",
+      employeeId: "emp-single-1",
     });
   });
 });
