@@ -10,6 +10,8 @@ import { assertPermission } from "@/lib/auth/assertPermission";
 import { checkActionRateLimit } from "@/lib/auth/rate-limit";
 import { validateRequestOrigin } from "@/lib/security";
 import { writeAuditLogAction } from "@/lib/actions/audit";
+import { getMonthStartDateString, getMonthEndDateString, getDaysInMonth } from "@/lib/utils/date-utils";
+import { assertIdempotencyKey } from "@/lib/services/idempotency";
 
 export async function validatePayrollLockAction(periodId: string) {
   const csrfError = await validateRequestOrigin();
@@ -31,7 +33,7 @@ export async function reopenPayrollPeriodAction(periodId: string, actorId?: stri
   const csrfError = await validateRequestOrigin();
   if (csrfError) return csrfError;
 
-  const permError = await assertPermission("payroll.run");
+  const permError = await assertPermission("payroll.reopen");
   if (permError) return permError;
 
   const supabase = await createClient();
@@ -74,10 +76,18 @@ export async function finalizePayrollPeriodAction(periodId: string) {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return csrfError;
 
-  const permError = await assertPermission("payroll.run");
+  const permError = await assertPermission("payroll.finalize");
   if (permError) return permError;
 
   const supabase = await createClient();
+
+  // Re-verify payroll lock before finalizing (Phase 3.2)
+  const { error: lockErr } = await supabase.rpc("validate_payroll_lock", {
+    p_period_id: periodId,
+  });
+  if (lockErr) {
+    return { error: `Cannot finalize: ${lockErr.message}` };
+  }
 
   const { error } = await supabase
     .from("payroll_periods")
@@ -141,17 +151,34 @@ export async function publishPayrollPeriodAction(periodId: string) {
   return { success: true };
 }
 
-export async function createPayrollPeriodAction(year: number, month: number) {
+export async function createPayrollPeriodAction(year: number, month: number, idempotencyKey?: string) {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return csrfError;
+
+  const idempCheck = await assertIdempotencyKey(idempotencyKey, `create_payroll_period_${year}_${month}`);
+  if (idempCheck.isDuplicate) {
+    return { error: idempCheck.error };
+  }
 
   const permError = await assertPermission("payroll.run");
   if (permError) return permError;
 
   const supabase = await createClient();
 
-  const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
-  const endDate = new Date(year, month, 0).toISOString().split("T")[0];
+  // Check for existing duplicate period (same year and month) (M5)
+  const { data: existing } = await supabase
+    .from("payroll_periods")
+    .select("id")
+    .eq("year", year)
+    .eq("month", month)
+    .maybeSingle();
+
+  if (existing) {
+    return { error: `A payroll period for ${month}/${year} already exists.` };
+  }
+
+  const startDate = getMonthStartDateString(year, month);
+  const endDate = getMonthEndDateString(year, month);
   const cutoffDate = endDate;
 
   const { data: period, error: pErr } = await supabase
@@ -185,9 +212,14 @@ export async function createPayrollPeriodAction(year: number, month: number) {
   return { success: true, period, revision: rev };
 }
 
-export async function executeBulkPayrollRunAction(periodId: string) {
+export async function executeBulkPayrollRunAction(periodId: string, idempotencyKey?: string) {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return csrfError;
+
+  const idempCheck = await assertIdempotencyKey(idempotencyKey, `bulk_payroll_run_${periodId}`);
+  if (idempCheck.isDuplicate) {
+    return { error: idempCheck.error };
+  }
 
   const rateCheck = await checkActionRateLimit(periodId, "bulk_payroll_run", 5, 3600000);
   if (!rateCheck.allowed) {
@@ -358,13 +390,17 @@ export async function executeBulkPayrollRunAction(periodId: string) {
     const salaryMap = new Map<string, SalStruct>();
     const safeSals = (Array.isArray(allSalStructs) ? allSalStructs : (allSalStructs ? [allSalStructs] : [])) as SalStruct[];
     for (const sal of safeSals) {
-      salaryMap.set(sal.employee_id || sal.id || "", sal);
+      if (sal.employee_id) {
+        salaryMap.set(sal.employee_id, sal);
+      }
     }
 
     const statMap = new Map<string, StatProfile>();
     const safeStats = (Array.isArray(allStatProfiles) ? allStatProfiles : (allStatProfiles ? [allStatProfiles] : [])) as StatProfile[];
     for (const stat of safeStats) {
-      statMap.set(stat.employee_id || stat.id || "", stat);
+      if (stat.employee_id) {
+        statMap.set(stat.employee_id, stat);
+      }
     }
 
     interface PayslipPayload {
@@ -389,8 +425,9 @@ export async function executeBulkPayrollRunAction(periodId: string) {
       const leaveReqs = leaveMap.get(emp.id) || [];
       const paidLeaveDays = leaveReqs.reduce((acc: number, l) => acc + Number(l.total_days || 0), 0);
 
-      const salStruct = salaryMap.get(emp.id) || (safeSals.length === 1 ? safeSals[0] : undefined);
-      const statProfile = statMap.get(emp.id) || (safeStats.length === 1 ? safeStats[0] : undefined);
+      // P0 Blocker #1: Strict deterministic employee-ID-based salary structure resolution
+      const salStruct = salaryMap.get(emp.id);
+      const statProfile = statMap.get(emp.id);
 
       const monthlyCtc = resolveMonthlyCtc(salStruct);
       if (monthlyCtc === null) {
@@ -432,35 +469,27 @@ export async function executeBulkPayrollRunAction(periodId: string) {
       });
     }
 
-    if (payslipsToUpsert.length > 0) {
-      const results = await Promise.all(
-        payslipsToUpsert.map((p) =>
-          supabase.from("payslips").upsert(p, { onConflict: "payroll_revision_id,employee_id" })
-        )
-      );
-      const firstErr = results.find((r) => r.error)?.error;
-      if (firstErr) return { error: firstErr.message };
+    // P0 Blocker #4: Atomic database execution via stored procedure
+    const { data: atomicResult, error: rpcErr } = await supabase.rpc("execute_atomic_payroll_run", {
+      p_period_id: periodId,
+      p_revision_id: revision.id,
+      p_payslips: payslipsToUpsert,
+    });
+
+    if (rpcErr) {
+      return { error: rpcErr.message };
     }
+
+    if (atomicResult && Array.isArray(atomicResult) && atomicResult[0] && !atomicResult[0].success) {
+      return { error: atomicResult[0].error_message || "Atomic payroll execution failed" };
+    }
+  } else {
+    // 0 eligible employees
+    await supabase
+      .from("payroll_periods")
+      .update({ status: "validated" })
+      .eq("id", periodId);
   }
-
-  // 6. Update revision totals
-  await supabase
-    .from("payroll_revisions")
-    .update({
-      total_employees: eligibleList.length,
-      total_gross: totalGrossRun,
-      total_deductions: totalDeductionsRun,
-      total_net: totalNetRun,
-    })
-    .eq("id", revision.id);
-
-  // 7. Update period status to validated
-  const { error: updateErr } = await supabase
-    .from("payroll_periods")
-    .update({ status: "validated" })
-    .eq("id", periodId);
-
-  if (updateErr) return { error: updateErr.message };
 
   return {
     success: true,

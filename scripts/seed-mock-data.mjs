@@ -41,7 +41,7 @@ export const adminDb = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-export const DEFAULT_PASSWORD = "Password123!";
+export const DEFAULT_PASSWORD = process.env.TEST_DEFAULT_PASSWORD || "Password123!";
 
 async function isSupabaseReachable() {
   try {

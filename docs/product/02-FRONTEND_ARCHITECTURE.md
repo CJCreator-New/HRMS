@@ -453,13 +453,15 @@ npm run build     # Production build with type-checking
 - **Lazy loading**: Dynamic imports for heavy components
 - **Web Vitals**: `WebVitals.tsx` component tracks LCP, FID, CLS
 
-### Known Performance Gaps
+### Performance Architecture & Optimizations
 
-| Gap | Impact | Status |
+| Optimization | Description | Status |
 |---|---|---|
-| Approvals page still `"use client"` | Full client-side waterfall | Planned conversion to RSC (J1) |
-| No skeleton loading states | Layout shift on page load | Planned (V6) |
-| N+1 middleware queries | Per-request DB overhead | Optimized to batch RPC (F2 resolved) |
+| Approvals Page RSC Conversion | Server-side data fetching with unpaginated count + `<ApprovalsWorkspace>` client island (J1) | ✅ **Implemented** |
+| Skeleton Loading States | `<DataTableSkeleton>` and card shimmer states across directory & workspaces (V6) | ✅ **Implemented** |
+| Batch Permission Middleware | Single `has_any_permission` RPC per route gate, eliminating N+1 DB roundtrips (F2) | ✅ **Implemented** |
+| Mobile Navigation Transitions | Hardware-accelerated CSS translate transforms on sidebar drawer (V9) | ✅ **Implemented** |
+| Real-time Overlap Feedback | Client-side inline date-range collision detection on leave forms (AUDIT-Task 3.3) | ✅ **Implemented** |
 
 ---
 

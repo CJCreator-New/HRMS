@@ -59,7 +59,8 @@ returns boolean language sql immutable as $$
     ('active','suspended'), ('suspended','active'),
     ('suspended','offboarded'),
     ('active','notice_period'), ('notice_period','active'), ('notice_period','offboarded'),
-    ('active','offboarded')
+    ('active','offboarded'),
+    ('withdrawn','active')
   )
 $$;
 

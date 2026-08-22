@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { assertPermission, assertAnyPermission, assertCallerIdentity, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
+import { getTodayDateStringIST } from "@/lib/utils/date-utils";
 
 export interface AttendanceActionRecord {
   id: string;
@@ -48,8 +49,25 @@ export async function punchCheckInAction(employeeId?: string): Promise<{ success
   if (identityError) return { success: false, error: identityError.error };
 
   const supabase = await createClient();
-  const today = new Date().toISOString().split("T")[0];
+  const today = getTodayDateStringIST();
   const nowIso = new Date().toISOString();
+
+  // Check if an open or existing record already exists for today (M3)
+  const { data: existing } = await supabase
+    .from("attendance_records")
+    .select("id, employee_id, attendance_date, check_in_time, check_out_time, status")
+    .eq("employee_id", empId)
+    .eq("attendance_date", today)
+    .maybeSingle();
+
+  if (existing) {
+    if (existing.check_in_time && !existing.check_out_time) {
+      return { success: false, error: "You are already checked in for today.", record: existing as AttendanceActionRecord };
+    }
+    if (existing.check_out_time) {
+      return { success: false, error: "Attendance for today has already been completed.", record: existing as AttendanceActionRecord };
+    }
+  }
 
   const { data: record, error } = await supabase
     .from("attendance_records")
@@ -69,6 +87,13 @@ export async function punchCheckInAction(employeeId?: string): Promise<{ success
     punch_type: "check_in",
     punch_timestamp: nowIso,
   });
+
+  try {
+    revalidatePath("/");
+    revalidatePath("/attendance");
+  } catch {
+    // Non-blocking in non-RSC / unit test contexts
+  }
 
   return { success: true, record };
 }
@@ -113,6 +138,13 @@ export async function punchCheckOutAction(attendanceRecordId: string): Promise<{
     punch_type: "check_out",
     punch_timestamp: nowIso,
   });
+
+  try {
+    revalidatePath("/");
+    revalidatePath("/attendance");
+  } catch {
+    // Non-blocking in non-RSC / unit test contexts
+  }
 
   return { success: true, record };
 }

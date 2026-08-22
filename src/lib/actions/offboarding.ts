@@ -102,6 +102,13 @@ export async function rescindResignationAction(separationId: string) {
 
   if (error) return { error: error.message };
 
+  // Cancel associated draft F&F settlement record (M4)
+  await supabase
+    .from("ff_settlement_records")
+    .update({ status: "cancelled" })
+    .eq("separation_id", separationId)
+    .eq("status", "draft");
+
   try {
     await writeAuditLogAction({
       action: "separation.rescind",

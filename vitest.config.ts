@@ -5,7 +5,9 @@ export default defineConfig({
   test: {
     include: ["src/**/*.{test,spec}.{js,ts,jsx,tsx}"],
     exclude: ["e2e/**/*", "node_modules/**/*"],
-    environment: "node",
+    environment: "jsdom",
+    fileParallelism: false,
+    pool: "threads",
     setupFiles: ["./vitest.setup.ts"],
     testTimeout: 15_000,
     coverage: {

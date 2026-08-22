@@ -257,5 +257,79 @@ describe("approveReimbursementClaimAction — Two-Stage Routing (D11 / FR §11.3
     expect(res.success).toBe(false);
     expect(res.error).toContain("Self-approval");
   });
+
+  it("handles concurrent state conflict on rejection atomically", async () => {
+    const fake = createFakeSupabase({
+      respond: (state) => {
+        if (state.table === "employees" && state.method === "select") {
+          return { data: { id: "emp-decider" }, error: null };
+        }
+        if (state.table === "reimbursement_claims" && state.method === "select") {
+          return {
+            data: {
+              id: "claim-concurrent-rej",
+              employee_id: "emp-requester",
+              status: "pending_manager",
+              requested_amount: 1000,
+              reimbursement_categories: { id: "cat-1", approval_route: "manager_only" },
+            },
+            error: null,
+          };
+        }
+        if (state.table === "reimbursement_claims" && state.method === "update") {
+          // Simulate zero rows affected due to concurrent status change
+          return { data: null, error: null };
+        }
+        return { data: null, error: null };
+      },
+    });
+    fake.auth = {
+      getUser: vi.fn().mockResolvedValue({ data: { user: { id: "auth-decider" } } }),
+    } as any;
+    mocks.createClient.mockReturnValue(fake);
+
+    const { approveReimbursementClaimAction } = await import("@/lib/actions/reimbursements");
+    const res = await approveReimbursementClaimAction("claim-concurrent-rej", "rejected");
+
+    expect(res.success).toBe(false);
+    expect(res.error).toContain("Claim was already updated by another approver");
+  });
+
+  it("handles concurrent state conflict on approval atomically", async () => {
+    const fake = createFakeSupabase({
+      respond: (state) => {
+        if (state.table === "employees" && state.method === "select") {
+          return { data: { id: "emp-decider" }, error: null };
+        }
+        if (state.table === "reimbursement_claims" && state.method === "select") {
+          return {
+            data: {
+              id: "claim-concurrent-app",
+              employee_id: "emp-requester",
+              status: "pending_manager",
+              requested_amount: 1000,
+              reimbursement_categories: { id: "cat-1", approval_route: "manager_only" },
+            },
+            error: null,
+          };
+        }
+        if (state.table === "reimbursement_claims" && state.method === "update") {
+          // Simulate zero rows affected due to concurrent status change
+          return { data: null, error: null };
+        }
+        return { data: null, error: null };
+      },
+    });
+    fake.auth = {
+      getUser: vi.fn().mockResolvedValue({ data: { user: { id: "auth-decider" } } }),
+    } as any;
+    mocks.createClient.mockReturnValue(fake);
+
+    const { approveReimbursementClaimAction } = await import("@/lib/actions/reimbursements");
+    const res = await approveReimbursementClaimAction("claim-concurrent-app", "approved");
+
+    expect(res.success).toBe(false);
+    expect(res.error).toContain("Claim was already updated by another approver");
+  });
 });
 

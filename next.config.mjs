@@ -1,4 +1,8 @@
 /** @type {import('next').NextConfig} */
+if (process.env.NODE_ENV === "production" && process.env.NEXT_PUBLIC_MOCK_AUTH === "true") {
+  throw new Error("SECURITY ERROR: NEXT_PUBLIC_MOCK_AUTH cannot be enabled in production builds.");
+}
+
 const nextConfig = {
   output: "standalone",
   reactStrictMode: true,

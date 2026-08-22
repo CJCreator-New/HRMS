@@ -8,7 +8,7 @@
 
 ## 1. Overview
 
-The HRMS data model is organized into **20 modular SQL files** covering infrastructure, RBAC, organization, settings, calendar, attendance, leave, salary, payroll, statutory, reimbursements, leave finance, F&F settlement, attachments, audit, notifications, jobs, search, and reports.
+The HRMS data model is organized into **24 modular SQL files** (`schema/00_setup.sql` through `22_comprehensive_performance_indexes.sql` plus `bootstrap/01_system_admin.sql`) covering infrastructure, RBAC (8 roles, 62 permission codes), organization, settings, calendar, attendance, leave, salary, payroll, statutory, reimbursements, leave finance, F&F settlement, attachments, audit, notifications, scheduled jobs, search, reports, performance optimizations, and comprehensive indexes.
 
 ---
 
@@ -27,7 +27,7 @@ The HRMS data model is organized into **20 modular SQL files** covering infrastr
 │       │         │                                                               │
 │       │         ▼                                                               │
 │       │    ┌──────────────┐                                                     │
-│       │    │ permissions  │ (56 codes)                                          │
+│       │    │ permissions  │ (62 codes)                                          │
 │       │    └──────────────┘                                                     │
 │       │                                                                         │
 │       ├─────────────────────────────────────────────────────────────────────┐   │

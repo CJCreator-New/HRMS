@@ -45,37 +45,41 @@ The HRMS v2.7 backend is built on **Supabase** (PostgreSQL 15) with a **defense-
 
 ## 2. Database Schema Architecture
 
-### Schema Organization (20 Modular Files)
+### Schema Organization (24 Modular Files)
 
-The database is organized into 20 modular SQL files, combined into `schema/combined_init.sql` via `npm run db:sync`:
+The database is organized into 24 modular SQL files, combined into `schema/combined_init.sql` via `npm run db:sync`:
 
 | File | Module | Purpose |
 |---|---|---|
 | `00_setup.sql` | Infrastructure | Extensions (`pgcrypto`, `btree_gist`), `auth_employee_id()`, `set_updated_at()`, idempotency keys |
-| `01_rbac.sql` | RBAC | Roles, permissions (56 codes), role_permissions, employee_roles, `has_permission()` RPC, self-grant trigger |
-| `02_org.sql` | Organization | Employees, status transitions, departments, assignments, separation records, offboarding checklists |
-| `03_settings.sql` | Settings | Company settings, policy configurations, zero-seed gate |
-| `04_work_calendar.sql` | Calendar | Calendar templates, holidays, employee assignments, optional holiday selections |
-| `05_attendance.sql` | Attendance | Attendance records (two-layer), punches, corrections, `v_employee_on_leave` view |
-| `06_leave.sql` | Leave | Leave types, allocations, requests, approvals, ledger, permissions, comp-off, overlap prevention trigger |
-| `07_salary.sql` | Salary | Salary components, per-employee versioned structures, structure items |
-| `08_payroll_eligibility.sql` | Eligibility | Payroll eligibility flags, snapshots |
-| `09_payroll.sql` | Payroll | Payroll periods, revisions, payslips, payslip components, adjustments, lock validation |
+| `01_rbac.sql` | RBAC | Roles (8 total: 5 active + 3 dormant), permissions (62 codes), `role_permissions`, `employee_roles`, `has_permission()` & `has_any_permission()` RPCs, `block_self_grant` trigger |
+| `02_org.sql` | Organization | Employees, status transitions (`enforce_employee_transition`), departments, assignments, separation records, offboarding checklists |
+| `03_settings.sql` | Settings | Company settings (`alternate_hr_approver_id`), policy configurations, zero-seed gate (`is_system_configured`) |
+| `04_work_calendar.sql` | Calendar | Calendar templates, holidays, employee assignments, optional holiday selections, `is_working_day()` |
+| `05_attendance.sql` | Attendance | Attendance records (two-layer model), punches, corrections, `v_employee_on_leave` view |
+| `06_leave.sql` | Leave | Leave types, allocations, requests, approvals, ledger, permissions, comp-off grants, `prevent_overlapping_leave_requests()` trigger, `v_leave_requests_masked` |
+| `07_salary.sql` | Salary | Salary components, per-employee versioned structures, structure items, GiST daterange no-overlap |
+| `08_payroll_eligibility.sql` | Eligibility | Effective-dated binary payroll eligibility flags, snapshots |
+| `09_payroll.sql` | Payroll | Payroll periods, revisions, payslips, payslip components, adjustments, `validate_payroll_lock()` |
 | `10_statutory.sql` | Statutory | Statutory rule versions, profiles, calculation snapshots |
-| `11_reimbursements.sql` | Reimbursements | Reimbursement categories, claims, receipts |
+| `11_reimbursements.sql` | Reimbursements | Reimbursement categories, claims, receipts, duplicate detection trigger |
 | `12_leave_financial.sql` | Leave Finance | Leave encashment requests, carry-forward logs |
-| `13_ff_settlement.sql` | F&F | F&F settlement records, clearances, stale invalidation trigger |
-| `14_attachments.sql` | Attachments | Document attachments with scan status |
+| `13_ff_settlement.sql` | F&F | F&F settlement records, clearances, `invalidate_stale_ff_settlement()` trigger |
+| `14_attachments.sql` | Attachments | Document attachments with malware scan status |
 | `15_audit.sql` | Audit | Immutable audit logs |
 | `16_notifications.sql` | Notifications | Inbox notifications |
-| `17_scheduled_jobs.sql` | Jobs | Scheduled job logs |
+| `17_scheduled_jobs.sql` | Jobs | Scheduled job logs, comp-off expiry job |
 | `18_search.sql` | Search | `search_global()` function |
 | `19_reports.sql` | Reports | `v_pending_approvals_dashboard` view |
+| `20_performance_optimizations.sql` | Optimization | Compound indexes, partial indexes, optimized RLS query paths |
+| `21_rbac_scope_fallback.sql` | RBAC Fallback | Scope resolution helper functions (`has_scoped_permission`) |
+| `22_comprehensive_performance_indexes.sql` | Indexes | High-concurrency covering indexes and foreign key indexes |
+| `bootstrap/01_system_admin.sql` | Bootstrap | Break-glass initial System Admin setup outside RLS |
 
 ### Combined Schema Application
 
 ```bash
-# Merge 20 modular files into combined_init.sql
+# Merge 24 modular files into combined_init.sql
 npm run db:sync
 
 # Apply to PostgreSQL

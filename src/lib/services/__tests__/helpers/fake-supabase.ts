@@ -184,10 +184,22 @@ export function createFakeSupabase(
     from: vi.fn((table: string) => new FakeQueryBuilder(buildQueryState(table), respond)),
     rpc: vi.fn((fnName: string, args?: unknown) => {
       const handler = opts.rpcs?.[fnName];
-      if (!handler) {
-        return Promise.resolve({ data: null, error: { message: `RPC ${fnName} not stubbed` } });
+      if (handler) {
+        return Promise.resolve(handler(args));
       }
-      return Promise.resolve(handler(args));
+      if (fnName === "execute_atomic_payroll_run") {
+        return Promise.resolve({
+          data: [{ success: true, processed_count: (args as any)?.p_payslips?.length ?? 0, error_message: null }],
+          error: null,
+        });
+      }
+      if (fnName === "validate_payroll_lock") {
+        return Promise.resolve({ data: true, error: null });
+      }
+      if (fnName === "register_idempotency_key") {
+        return Promise.resolve({ data: true, error: null });
+      }
+      return Promise.resolve({ data: null, error: { message: `RPC ${fnName} not stubbed` } });
     }),
   };
 }

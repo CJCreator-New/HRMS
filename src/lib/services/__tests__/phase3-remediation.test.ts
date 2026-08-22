@@ -352,4 +352,94 @@ describe("Phase 3 Remediation Tests", () => {
       expect(res.error).toMatch(/already been utilized/i);
     });
   });
+
+  describe("Task 3.4: Attachment Upload Security & Sanitization", () => {
+    it("rejects uploads exceeding maximum 10MB limit", async () => {
+      const { uploadAttachmentAction } = await import("@/lib/actions/attachments");
+      const res = await uploadAttachmentAction(
+        "general",
+        "emp-1",
+        "doc.pdf",
+        11 * 1024 * 1024, // 11MB
+        "application/pdf",
+        "uploads/doc.pdf"
+      );
+      expect(res).toEqual({ error: "File size exceeds maximum allowed limit of 10MB." });
+    });
+
+    it("rejects invalid or unauthorized MIME types", async () => {
+      const { uploadAttachmentAction } = await import("@/lib/actions/attachments");
+      const res: any = await uploadAttachmentAction(
+        "general",
+        "emp-1",
+        "script.sh",
+        1024,
+        "application/x-sh",
+        "uploads/script.sh"
+      );
+      expect(res.error).toContain("Unsupported or invalid file MIME type");
+    });
+
+    it("rejects path traversal in filename or storage path", async () => {
+      const { uploadAttachmentAction } = await import("@/lib/actions/attachments");
+      const res: any = await uploadAttachmentAction(
+        "general",
+        "emp-1",
+        "../../evil.pdf",
+        1024,
+        "application/pdf",
+        "uploads/../evil.pdf"
+      );
+      expect(res.error).toContain("Invalid storage path");
+    });
+  });
+
+  describe("Task 3.5: Structured Logger Redaction & PII / Financial Masking", () => {
+    it("redacts sensitive compensation, token, and PII fields in metadata", async () => {
+      const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+      const { logger } = await import("@/lib/utils/logger");
+
+      logger.info("payroll.calculation", {
+        actorId: "emp-admin",
+        metadata: {
+          salary: 150000,
+          annual_ctc: 1800000,
+          pan: "ABCDE1234F",
+          password: "secretpassword123",
+          token: "eyJhbGciOi...",
+          safeField: "Standard Log Metadata",
+        },
+      });
+
+      expect(infoSpy).toHaveBeenCalled();
+      const loggedEntry = JSON.parse(infoSpy.mock.calls[0][0]);
+      expect(loggedEntry.metadata.salary).toBe("[REDACTED]");
+      expect(loggedEntry.metadata.annual_ctc).toBe("[REDACTED]");
+      expect(loggedEntry.metadata.pan).toBe("[REDACTED]");
+      expect(loggedEntry.metadata.password).toBe("[REDACTED]");
+      expect(loggedEntry.metadata.token).toBe("[REDACTED]");
+      expect(loggedEntry.metadata.safeField).toBe("Standard Log Metadata");
+
+      infoSpy.mockRestore();
+    });
+  });
+
+  describe("Task 3.6: Idempotency Key Handling & Duplicate Detection", () => {
+    it("detects duplicate idempotency key registration", async () => {
+      const { assertIdempotencyKey } = await import("@/lib/services/idempotency");
+      const fake = createFakeSupabase({
+        rpcs: {
+          register_idempotency_key: () => ({
+            data: null,
+            error: { code: "23505", message: "Duplicate request detected for idempotency key" },
+          }),
+        },
+      });
+      mocks.createClient.mockReturnValue(fake);
+
+      const res = await assertIdempotencyKey("test-key-123", "payroll_run");
+      expect(res.isDuplicate).toBe(true);
+      expect(res.error).toContain("Duplicate request detected");
+    });
+  });
 });

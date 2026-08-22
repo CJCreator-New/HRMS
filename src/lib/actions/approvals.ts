@@ -25,12 +25,22 @@ export async function getPendingApprovalsCountAction(roleFocus?: RoleCode) {
     .select("id", { count: "exact", head: true });
 
   if (roleFocus === "manager" && caller?.employeeId) {
-    const { data: teamEmps } = await supabase
-      .from("employees")
-      .select("id")
+    const { data: teamAssignments } = await supabase
+      .from("employee_current_manager")
+      .select("employee_id")
       .eq("manager_id", caller.employeeId);
 
-    const teamIds = (teamEmps || []).map((e: { id: string }) => e.id);
+    let teamIds = (teamAssignments || []).map((a: { employee_id: string }) => a.employee_id);
+    if (teamIds.length === 0) {
+      // Fallback query directly on assignment table with active effective dates
+      const { data: rawAssignments } = await supabase
+        .from("employee_manager_assignment")
+        .select("employee_id")
+        .eq("manager_id", caller.employeeId)
+        .is("effective_to", null);
+      teamIds = (rawAssignments || []).map((a: { employee_id: string }) => a.employee_id);
+    }
+
     if (teamIds.length === 0) {
       return { count: 0 };
     }

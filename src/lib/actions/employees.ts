@@ -8,6 +8,7 @@ import { checkActionRateLimit } from "@/lib/auth/rate-limit";
 import { writeAuditLogAction } from "@/lib/actions/audit";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 import type { BatchCommitResult } from "@/lib/batch-import/types";
+import { getTodayDateStringIST, previousDateString } from "@/lib/utils/date-utils";
 
 export async function createEmployeeAction(formData: FormData) {
   const csrfError = await validateRequestOrigin();
@@ -62,7 +63,7 @@ export async function createEmployeeAction(formData: FormData) {
         full_name: fullName,
         email,
         auth_user_id: authUser.user.id,
-        date_of_joining: dateOfJoining || new Date().toISOString().split("T")[0],
+        date_of_joining: dateOfJoining || getTodayDateStringIST(),
         status: "invited",
         must_change_password: true,
       })
@@ -173,7 +174,7 @@ export async function importEmployeesAction(
     const code = sanitizeInput(row.code || "").trim();
     const name = sanitizeInput(row.name || "").trim();
     const email = sanitizeInput(row.email || "").trim();
-    const doj = row.doj ? row.doj.trim() : new Date().toISOString().split("T")[0];
+    const doj = row.doj ? row.doj.trim() : getTodayDateStringIST();
 
     if (!code || !name || !email) {
       skipped++;
@@ -313,30 +314,135 @@ export async function updateEmployeeAssignmentAction(
   if (designationTitle) designationTitle = sanitizeInput(designationTitle);
 
   const supabase = await createClient();
-  const today = new Date().toISOString().split("T")[0];
+  const today = getTodayDateStringIST();
 
   if (departmentId) {
-    await supabase.from("employee_department_assignment").insert({
-      employee_id: employeeId,
-      department_id: departmentId,
-      effective_from: today,
+    const { error: rpcErr } = await supabase.rpc("update_employee_department_assignment", {
+      p_employee_id: employeeId,
+      p_department_id: departmentId,
+      p_effective_from: today,
     });
+    if (rpcErr) {
+      const { data: openDept } = await supabase
+        .from("employee_department_assignment")
+        .select("id, effective_from")
+        .eq("employee_id", employeeId)
+        .is("effective_to", null)
+        .maybeSingle();
+
+      if (openDept) {
+        if (openDept.effective_from === today) {
+          await supabase
+            .from("employee_department_assignment")
+            .update({ department_id: departmentId })
+            .eq("id", openDept.id);
+        } else {
+          const prevDate = previousDateString(today);
+          await supabase
+            .from("employee_department_assignment")
+            .update({ effective_to: prevDate })
+            .eq("id", openDept.id);
+
+          await supabase.from("employee_department_assignment").insert({
+            employee_id: employeeId,
+            department_id: departmentId,
+            effective_from: today,
+          });
+        }
+      } else {
+        await supabase.from("employee_department_assignment").insert({
+          employee_id: employeeId,
+          department_id: departmentId,
+          effective_from: today,
+        });
+      }
+    }
   }
 
   if (managerId) {
-    await supabase.from("employee_manager_assignment").insert({
-      employee_id: employeeId,
-      manager_id: managerId,
-      effective_from: today,
+    const { error: rpcErr } = await supabase.rpc("update_employee_manager_assignment", {
+      p_employee_id: employeeId,
+      p_manager_id: managerId,
+      p_effective_from: today,
     });
+    if (rpcErr) {
+      const { data: openMgr } = await supabase
+        .from("employee_manager_assignment")
+        .select("id, effective_from")
+        .eq("employee_id", employeeId)
+        .is("effective_to", null)
+        .maybeSingle();
+
+      if (openMgr) {
+        if (openMgr.effective_from === today) {
+          await supabase
+            .from("employee_manager_assignment")
+            .update({ manager_id: managerId })
+            .eq("id", openMgr.id);
+        } else {
+          const prevDate = previousDateString(today);
+          await supabase
+            .from("employee_manager_assignment")
+            .update({ effective_to: prevDate })
+            .eq("id", openMgr.id);
+
+          await supabase.from("employee_manager_assignment").insert({
+            employee_id: employeeId,
+            manager_id: managerId,
+            effective_from: today,
+          });
+        }
+      } else {
+        await supabase.from("employee_manager_assignment").insert({
+          employee_id: employeeId,
+          manager_id: managerId,
+          effective_from: today,
+        });
+      }
+    }
   }
 
   if (designationTitle) {
-    await supabase.from("employee_designation_assignment").insert({
-      employee_id: employeeId,
-      title: designationTitle,
-      effective_from: today,
+    const { error: rpcErr } = await supabase.rpc("update_employee_designation_assignment", {
+      p_employee_id: employeeId,
+      p_title: designationTitle,
+      p_effective_from: today,
     });
+    if (rpcErr) {
+      const { data: openDesig } = await supabase
+        .from("employee_designation_assignment")
+        .select("id, effective_from")
+        .eq("employee_id", employeeId)
+        .is("effective_to", null)
+        .maybeSingle();
+
+      if (openDesig) {
+        if (openDesig.effective_from === today) {
+          await supabase
+            .from("employee_designation_assignment")
+            .update({ title: designationTitle })
+            .eq("id", openDesig.id);
+        } else {
+          const prevDate = previousDateString(today);
+          await supabase
+            .from("employee_designation_assignment")
+            .update({ effective_to: prevDate })
+            .eq("id", openDesig.id);
+
+          await supabase.from("employee_designation_assignment").insert({
+            employee_id: employeeId,
+            title: designationTitle,
+            effective_from: today,
+          });
+        }
+      } else {
+        await supabase.from("employee_designation_assignment").insert({
+          employee_id: employeeId,
+          title: designationTitle,
+          effective_from: today,
+        });
+      }
+    }
   }
 
   return { success: true };

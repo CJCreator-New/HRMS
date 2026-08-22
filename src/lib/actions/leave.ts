@@ -26,7 +26,10 @@ export async function applyLeaveAction(
     return { error: `Rate limit exceeded: Too many leave applications. Please try again in ${mins} minute(s).` };
   }
 
-  reason = sanitizeInput(reason);
+  reason = sanitizeInput(reason || "").trim();
+  if (!reason) {
+    return { error: "Reason for leave application is required." };
+  }
 
   const permError = await assertPermission("leave.apply.self");
   if (permError) return permError;
@@ -126,7 +129,7 @@ export async function approveLeaveAction(requestId: string, approverId: string, 
   // Fetch the leave request to verify approver identity and prevent self-approval
   const { data: leaveRequest, error: fetchErr } = await supabase
     .from("leave_requests")
-    .select("id, employee_id, current_approver_id, status")
+    .select("id, employee_id, leave_type_id, total_days, start_date, current_approver_id, status")
     .eq("id", requestId)
     .single();
 
@@ -149,6 +152,32 @@ export async function approveLeaveAction(requestId: string, approverId: string, 
     return { error: "You are not the assigned approver for this request." };
   }
 
+  // Balance sufficiency check at approval time (C2)
+  if (leaveRequest.leave_type_id && leaveRequest.start_date) {
+    const year = new Date(leaveRequest.start_date).getFullYear();
+    const [{ data: alloc }, { data: lt }] = await Promise.all([
+      supabase
+        .from("leave_allocations")
+        .select("allocated_days, carry_forward_days, used_days")
+        .eq("employee_id", leaveRequest.employee_id)
+        .eq("leave_type_id", leaveRequest.leave_type_id)
+        .eq("year", year)
+        .single(),
+      supabase
+        .from("leave_types")
+        .select("allow_negative_balance")
+        .eq("id", leaveRequest.leave_type_id)
+        .single(),
+    ]);
+
+    if (alloc && !lt?.allow_negative_balance) {
+      const available = Number(alloc.allocated_days || 0) + Number(alloc.carry_forward_days || 0) - Number(alloc.used_days || 0);
+      if (available < Number(leaveRequest.total_days || 0)) {
+        return { error: `Insufficient leave balance: only ${available} day(s) available for this request.` };
+      }
+    }
+  }
+
   // Triggers process_leave_request_state_change on update to 'approved'
   const { data, error } = await supabase
     .from("leave_requests")
@@ -156,9 +185,10 @@ export async function approveLeaveAction(requestId: string, approverId: string, 
     .eq("id", requestId)
     .eq("status", "pending")
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) return { error: error.message };
+  if (!data) return { error: "Leave request is currently being processed or has already been decided. Please refresh." };
 
   await supabase
     .from("leave_request_approvals")
@@ -224,9 +254,10 @@ export async function rejectLeaveAction(requestId: string, approverId: string, r
     .eq("id", requestId)
     .eq("status", "pending")
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) return { error: error.message };
+  if (!data) return { error: "Leave request is currently being processed or has already been decided. Please refresh." };
 
   await supabase
     .from("leave_request_approvals")
@@ -250,7 +281,7 @@ export async function withdrawLeaveRequestAction(requestId: string) {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return csrfError;
 
-  const permError = await assertAnyPermission(["leave.cancel.self", "leave.apply.self"]);
+  const permError = await assertAnyPermission(["leave.cancel.self", "leave.approve.hr"]);
   if (permError) return permError;
 
   const caller = await getAuthenticatedCaller();

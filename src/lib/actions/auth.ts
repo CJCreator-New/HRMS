@@ -9,6 +9,9 @@ import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 import { signMockCookieValue } from "@/lib/auth/mock-cookie";
 import { E2E_MOCK_ALLOWED_ROUTES } from "@/lib/services/mock-rbac";
 
+import { sanitizeForLog } from "@/lib/utils/sanitize-log";
+import { getTodayDateStringIST } from "@/lib/utils/date-utils";
+
 export interface LoginActionResult {
   success?: boolean;
   error?: string;
@@ -82,29 +85,26 @@ export async function loginAction(formData: FormData): Promise<LoginActionResult
 
     const { data, error } = rawSupabaseResponse;
 
-    // Detailed diagnostic logging of the raw Supabase response object
+    // Detailed diagnostic logging only in non-production environments with sanitized inputs
     const authErr = error as { name?: string; message?: string; status?: number; code?: string; cause?: unknown; details?: unknown; hint?: string; stack?: string } | null;
 
-    console.info("[Auth Server Action: Handshake Response]", {
-      timestamp: new Date().toISOString(),
-      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || "NOT_SET",
-      email,
-      hasSession: Boolean(data?.session),
-      user: data?.user ? { id: data.user.id, email: data.user.email, app_metadata: data.user.app_metadata } : null,
-      error: authErr
-        ? {
-            name: authErr.name,
-            message: authErr.message,
-            status: authErr.status,
-            code: authErr.code,
-            cause: authErr.cause,
-            details: authErr.details,
-            hint: authErr.hint,
-            stack: authErr.stack,
-          }
-        : null,
-      rawErrorObject: error,
-    });
+    if (process.env.NODE_ENV !== "production") {
+      console.info("[Auth Server Action: Handshake Response]", {
+        timestamp: new Date().toISOString(),
+        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || "NOT_SET",
+        email: sanitizeForLog(email),
+        hasSession: Boolean(data?.session),
+        user: data?.user ? { id: data.user.id, email: sanitizeForLog(data.user.email), app_metadata: data.user.app_metadata } : null,
+        error: authErr
+          ? {
+              name: authErr.name,
+              message: authErr.message,
+              status: authErr.status,
+              code: authErr.code,
+            }
+          : null,
+      });
+    }
 
     if (error) {
       const errMsg = error.message?.toLowerCase() || "";
@@ -133,8 +133,8 @@ export async function loginAction(formData: FormData): Promise<LoginActionResult
           maxAge: sessionMaxAge,
         });
         console.warn(
-          `[Auth] Supabase auth rejected credentials (code=${errCode}) — falling back to mock auth. ` +
-          `Fix your Supabase project users or .env.local for production. email=${email}`
+          `[Auth] Supabase auth rejected credentials (code=${sanitizeForLog(errCode)}) — falling back to mock auth. ` +
+          `Fix your Supabase project users or .env.local for production. email=${sanitizeForLog(email)}`
         );
         return {
           success: true,
@@ -209,7 +209,7 @@ export async function loginAction(formData: FormData): Promise<LoginActionResult
           email: email,
           full_name: fullName,
           employee_code: employeeCode,
-          date_of_joining: new Date().toISOString().split("T")[0],
+          date_of_joining: getTodayDateStringIST(),
           status: "active",
           must_change_password: false,
           is_deactivated: false,

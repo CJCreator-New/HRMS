@@ -65,8 +65,8 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  // Allow /403 page and /login without auth checks
-  if (pathname === "/403" || pathname === "/login") {
+  // Allow /403 page, /login, and /api/health without auth checks
+  if (pathname === "/403" || pathname === "/login" || pathname === "/api/health") {
     return response;
   }
 
@@ -128,6 +128,12 @@ export async function middleware(request: NextRequest) {
   // 2a. Mock-mode RBAC: real user session is absent but valid mock token is present.
   //     Validate expiration and enforce access control via the static E2E RBAC table.
   if (!user && validMockEmail) {
+    if (process.env.NODE_ENV === "production") {
+      // In production, mock authentication is strictly forbidden
+      const forbiddenUrl = new URL("/403?code=mock_auth_disabled_in_production", request.url);
+      return NextResponse.redirect(forbiddenUrl);
+    }
+
     if (!isMockEmailAllowed(validMockEmail, pathname)) {
       const forbiddenUrl = new URL("/403", request.url);
       return NextResponse.redirect(forbiddenUrl);

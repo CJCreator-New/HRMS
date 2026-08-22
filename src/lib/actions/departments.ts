@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { assertPermission } from "@/lib/auth/assertPermission";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 import { previousDate } from "@/lib/services/compensation-engine";
+import { getTodayDateStringIST } from "@/lib/utils/date-utils";
 import { writeAuditLogAction } from "@/lib/actions/audit";
 import type { DepartmentAssignmentImportRow } from "@/lib/batch-import/schemas";
 import type { BatchCommitResult } from "@/lib/batch-import/types";
@@ -215,7 +216,7 @@ export async function bulkAssignDepartments(
     const deptName = sanitizeInput(row.department || "").trim();
     const designation = row.designation ? sanitizeInput(row.designation).trim() : null;
     const managerCode = row.manager_employee_code ? sanitizeInput(row.manager_employee_code).trim() : null;
-    const effectiveDate = row.effective_date ? row.effective_date.trim() : new Date().toISOString().split("T")[0];
+    const effectiveDate = row.effective_date ? row.effective_date.trim() : getTodayDateStringIST();
 
     if (!empCode || !deptName) {
       errorCount++;

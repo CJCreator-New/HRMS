@@ -39,13 +39,20 @@ export async function globalSearchAction(query: string) {
   // Fallback / Scoped Query: search employees table directly with role-enforced scope
   let queryBuilder = supabase
     .from("employees")
-    .select("id, full_name, employee_code, email, department, designation, status")
+    .select("id, full_name, employee_code, email, status")
     .or(`full_name.ilike.%${cleanQuery}%,employee_code.ilike.%${cleanQuery}%,email.ilike.%${cleanQuery}%`);
 
   if (!isSysAdmin && !isHrAdmin) {
     if (isManager && callerEmployeeId) {
-      // Manager can view self and direct reports
-      queryBuilder = queryBuilder.or(`id.eq.${callerEmployeeId},manager_id.eq.${callerEmployeeId}`);
+      // Manager can view self and direct reports via active manager assignment (P0 Blocker #3)
+      const { data: teamAssignments } = await supabase
+        .from("employee_manager_assignment")
+        .select("employee_id")
+        .eq("manager_id", callerEmployeeId)
+        .is("effective_to", null);
+      const teamIds = (teamAssignments || []).map((a: { employee_id: string }) => a.employee_id);
+      const allowedIds = [callerEmployeeId, ...teamIds];
+      queryBuilder = queryBuilder.in("id", allowedIds);
     } else if (callerEmployeeId) {
       // Standard employee can only search/view self
       queryBuilder = queryBuilder.eq("id", callerEmployeeId);

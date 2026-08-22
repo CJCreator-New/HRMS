@@ -14,6 +14,7 @@ vi.mock("@/lib/auth/assertPermission", () => ({
 }));
 
 import { createFakeSupabase } from "./helpers/fake-supabase";
+import { TEST_CREDENTIALS } from "./helpers/test-credentials";
 import {
   createEmployeeAction,
   getEmployeesAction,
@@ -85,7 +86,7 @@ describe("createEmployeeAction", () => {
     fd.set("employeeCode", "E1001");
     fd.set("fullName", "Alice Doe");
     fd.set("email", "alice@company.com");
-    fd.set("tempPassword", "Password123!");
+    fd.set("tempPassword", TEST_CREDENTIALS.defaultPassword);
     fd.set("dateOfJoining", "2026-08-01");
     for (const [k, v] of Object.entries(overrides)) fd.set(k, v);
     return fd;

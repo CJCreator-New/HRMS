@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import type { CurrentUserInfo } from "@/lib/auth/current-user";
+import { getTodayDateStringIST } from "@/lib/utils/date-utils";
 
 /**
  * Server-side attendance data (Slice 2 — RSC conversion).
@@ -54,7 +55,7 @@ export async function getAttendanceDashboard(userInfo: CurrentUserInfo): Promise
   if (!userInfo.employeeId) return empty;
 
   const supabase = await createClient();
-  const todayIso = new Date().toISOString().split("T")[0];
+  const todayIso = getTodayDateStringIST();
 
   try {
     const [{ data: records }, { data: corrections }] = await Promise.all([

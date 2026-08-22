@@ -17,7 +17,7 @@ import { resolveMockRolesFromEmail, resolveMockEmployeeIdFromEmail } from "@/lib
  */
 
 const MOCK_COOKIE_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
-const MOCK_COOKIE_SECRET = process.env.MOCK_COOKIE_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "hrms-mock-dev-secret-key-2026";
+const MOCK_COOKIE_SECRET = process.env.MOCK_COOKIE_SECRET || "hrms-mock-dev-secret-key-2026";
 
 async function getHmacKey(): Promise<CryptoKey> {
   const enc = new TextEncoder();
@@ -93,19 +93,7 @@ export async function validateMockCookieValue(
       return null;
     }
 
-    // Backward compatibility for existing 2-part format during development / non-production
-    if (process.env.NODE_ENV !== "production" && parts.length === 2) {
-      const [encoded, expiryStr] = parts;
-      const expiry = parseInt(expiryStr, 10);
-      if (!isNaN(expiry) && Date.now() > expiry) return null;
-      try {
-        const email = decodeURIComponent(atob(encoded));
-        if (email && email.includes("@")) return email;
-      } catch {
-        return null;
-      }
-    }
-
+    // Reject any token that does not meet the 3-part signed HMAC specification
     return null;
   } catch {
     return null;

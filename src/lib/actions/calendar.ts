@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { assertPermission, assertAnyPermission } from "@/lib/auth/assertPermission";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 import { previousDate } from "@/lib/services/compensation-engine";
+import { getTodayDateStringIST } from "@/lib/utils/date-utils";
 import { writeAuditLogAction } from "@/lib/actions/audit";
 import type { CalendarAssignmentImportRow } from "@/lib/batch-import/schemas";
 import type { BatchCommitResult } from "@/lib/batch-import/types";
@@ -95,15 +96,48 @@ export async function assignCalendarAction(
 
   const supabase = await createClient();
 
-  const { error } = await supabase
-    .from("employee_work_calendar_assignment")
-    .insert({
-      employee_id: employeeId,
-      calendar_template_id: calendarTemplateId,
-      effective_from: effectiveFrom,
-    });
+  const { error: rpcErr } = await supabase.rpc("update_employee_work_calendar_assignment", {
+    p_employee_id: employeeId,
+    p_calendar_template_id: calendarTemplateId,
+    p_effective_from: effectiveFrom,
+  });
 
-  if (error) return { error: error.message };
+  if (rpcErr) {
+    const { data: openAssignment } = await supabase
+      .from("employee_work_calendar_assignment")
+      .select("id, effective_from")
+      .eq("employee_id", employeeId)
+      .is("effective_to", null)
+      .maybeSingle();
+
+    if (openAssignment) {
+      if (openAssignment.effective_from === effectiveFrom) {
+        const { error: updateErr } = await supabase
+          .from("employee_work_calendar_assignment")
+          .update({ calendar_template_id: calendarTemplateId })
+          .eq("id", openAssignment.id);
+        if (updateErr) return { error: updateErr.message };
+        return { success: true };
+      } else {
+        const prevDate = previousDate(effectiveFrom);
+        await supabase
+          .from("employee_work_calendar_assignment")
+          .update({ effective_to: prevDate })
+          .eq("id", openAssignment.id);
+      }
+    }
+
+    const { error } = await supabase
+      .from("employee_work_calendar_assignment")
+      .insert({
+        employee_id: employeeId,
+        calendar_template_id: calendarTemplateId,
+        effective_from: effectiveFrom,
+      });
+
+    if (error) return { error: error.message };
+  }
+
   return { success: true };
 }
 
@@ -252,7 +286,7 @@ export async function bulkAssignCalendarTemplate(
     const scope = (row.scope || "employee").toLowerCase();
     const targetCode = sanitizeInput(row.target_code || "").trim();
     const templateName = sanitizeInput(row.template_name || "").trim();
-    const effectiveStart = row.effective_start_date ? row.effective_start_date.trim() : new Date().toISOString().split("T")[0];
+    const effectiveStart = row.effective_start_date ? row.effective_start_date.trim() : getTodayDateStringIST();
 
     if (!targetCode || !templateName) {
       errorCount++;

@@ -69,7 +69,7 @@ describe("attachments", () => {
       mime_type: "application/pdf",
       storage_path: "/docs/mar.pdf",
       uploaded_by: "emp-1",
-      scan_status: "clean",
+      scan_status: "pending",
     });
   });
 
@@ -77,7 +77,7 @@ describe("attachments", () => {
     const fake = createFakeSupabase({ user: null });
     mocks.createClient.mockReturnValue(fake);
 
-    const res = await uploadAttachmentAction("a", "b", "c", 1, "t", "p");
+    const res = await uploadAttachmentAction("a", "b", "c.pdf", 1024, "application/pdf", "/docs/c.pdf");
     expect(res).toEqual({ error: "Unauthenticated" });
   });
 });

@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { assertPermission, assertCallerIdentity } from "@/lib/auth/assertPermission";
+import { assertPermission, assertCallerIdentity, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { checkActionRateLimit } from "@/lib/auth/rate-limit";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 
@@ -132,7 +132,7 @@ export async function approveReimbursementClaimAction(
   }
 
   if (decision === "rejected") {
-    const { error: updateError } = await supabase
+    const { data: updatedClaim, error: updateError } = await supabase
       .from("reimbursement_claims")
       .update({
         status: "rejected",
@@ -140,15 +140,23 @@ export async function approveReimbursementClaimAction(
         decided_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq("id", claimId);
+      .eq("id", claimId)
+      .eq("status", claim.status)
+      .select()
+      .maybeSingle();
 
     if (updateError) return { success: false, error: updateError.message };
+    if (!updatedClaim) return { success: false, error: "Claim was already updated by another approver or is no longer in the expected state. Please refresh." };
     return { success: true, newStatus: "rejected" };
   }
 
-  // Two-stage routing check (FR §11.3 / D11)
+  // Two-stage routing check (FR §11.3 / D11 / C3)
   const category = claim.reimbursement_categories;
   const route = category?.approval_route || "manager_only";
+
+  const caller = await getAuthenticatedCaller();
+  const callerRoles = caller?.roles || [];
+  const isHr = callerRoles.includes("hr") || callerRoles.includes("system_admin") || (await assertPermission("reimbursement.view.all")) === null;
 
   let nextStatus: string = "approved";
 
@@ -157,7 +165,10 @@ export async function approveReimbursementClaimAction(
       // Stage 1 (Manager) approval -> Advances to pending_hr
       nextStatus = "pending_hr";
     } else if (claim.status === "pending_hr") {
-      // Stage 2 (HR) approval -> Final approved
+      // Stage 2 (HR) approval -> Requires HR authority
+      if (!isHr) {
+        return { success: false, error: "Two-stage approval violation: HR authority required for Stage 2 approval." };
+      }
       nextStatus = "approved";
     } else {
       return { success: false, error: "Two-stage approval violation: Invalid current state for manager_then_hr route." };
@@ -186,12 +197,16 @@ export async function approveReimbursementClaimAction(
     updatePayload.decided_at = new Date().toISOString();
   }
 
-  const { error: updateError } = await supabase
+  const { data: updatedClaim, error: updateError } = await supabase
     .from("reimbursement_claims")
     .update(updatePayload)
-    .eq("id", claimId);
+    .eq("id", claimId)
+    .eq("status", claim.status)
+    .select()
+    .maybeSingle();
 
   if (updateError) return { success: false, error: updateError.message };
+  if (!updatedClaim) return { success: false, error: "Claim was already updated by another approver or is no longer in the expected state. Please refresh." };
   return { success: true, newStatus: nextStatus };
 }
 

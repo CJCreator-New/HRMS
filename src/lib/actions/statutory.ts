@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { assertPermission } from "@/lib/auth/assertPermission";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
+import { getTodayDateStringIST } from "@/lib/utils/date-utils";
 import { writeAuditLogAction } from "@/lib/actions/audit";
 import type { StatutoryImportRow } from "@/lib/batch-import/schemas";
 import type { BatchCommitResult } from "@/lib/batch-import/types";
@@ -248,7 +249,7 @@ export async function bulkUpsertStatutoryProfiles(
       }
     } else {
       // Insert new statutory profile
-      const today = new Date().toISOString().split("T")[0];
+      const today = getTodayDateStringIST();
       const { error: insertErr } = await supabase
         .from("statutory_profiles")
         .insert({

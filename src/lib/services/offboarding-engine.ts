@@ -7,6 +7,8 @@
  * both server actions and client components.
  */
 
+import { getTodayDateStringIST } from "@/lib/utils/date-utils";
+
 /**
  * Computes the Last Working Day (LWD) = resignation date + notice period.
  *
@@ -18,11 +20,15 @@ export function computeLastWorkingDay(
   resignationDate: string,
   noticeDays: number
 ): string {
-  const ms = new Date(resignationDate).getTime();
-  if (Number.isNaN(ms)) return "";
-  return new Date(ms + noticeDays * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .split("T")[0];
+  const parts = resignationDate.split("-").map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) return "";
+  const [year, month, day] = parts;
+  const d = new Date(Date.UTC(year, month - 1, day));
+  d.setUTCDate(d.getUTCDate() + noticeDays);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
 }
 
 export type SeparationStatusAfterFf = "offboarded" | "active";
@@ -37,13 +43,13 @@ export interface FfApprovalOutcome {
  * marked "offboarded" only when the LWD has been reached AND F&F is approved.
  * A missing LWD counts as reached (backward compatible with prior behavior).
  *
- * `today` defaults to the current UTC date; inject it for deterministic tests.
+ * `today` defaults to the current IST date; inject it for deterministic tests.
  */
 export function resolveFfApprovalOutcome(
   lastWorkingDay: string | null | undefined,
   today?: string
 ): FfApprovalOutcome {
-  const todayStr = today ?? new Date().toISOString().split("T")[0];
+  const todayStr = today ?? getTodayDateStringIST();
   const lwdReached = lastWorkingDay ? lastWorkingDay <= todayStr : true;
   return { lwdReached, status: lwdReached ? "offboarded" : "active" };
 }

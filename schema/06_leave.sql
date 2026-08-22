@@ -70,7 +70,8 @@ create table leave_requests (
   status                leave_request_status not null default 'pending',
   current_approver_id   uuid references employees(id),
   created_at            timestamptz not null default now(),
-  updated_at            timestamptz not null default now()
+  updated_at            timestamptz not null default now(),
+  constraint chk_half_day_single_date check (duration_type = 'full_day' or start_date = end_date)
 );
 
 create table leave_request_approvals (
@@ -136,6 +137,8 @@ declare
   v_sandwich boolean;
   v_curr date := p_start_date;
   v_days numeric := 0;
+  v_is_single_day boolean := (p_start_date = p_end_date);
+begin
   -- Guard against invalid or excessively large date ranges (> 365 days)
   if p_end_date < p_start_date then
     raise exception 'End date cannot precede start date in calculate_leave_days';

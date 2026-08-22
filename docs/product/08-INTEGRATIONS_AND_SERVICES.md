@@ -269,8 +269,8 @@ Searches across:
 
 | Step | Command | Purpose |
 |---|---|---|
-| 1 | Edit modular SQL files (`schema/00-19_*.sql`) | Schema changes |
-| 2 | `npm run db:sync` | Merge into `combined_init.sql` |
+| 1 | Edit modular SQL files (`schema/00_*.sql` through `22_*.sql`) | Schema changes |
+| 2 | `npm run db:sync` | Merge 24 modular files into `combined_init.sql` |
 | 3 | `psql -f schema/combined_init.sql` | Apply to database |
 | 4 | `npm run seed:mock` | Populate test data |
 
@@ -296,13 +296,13 @@ Searches across:
 
 ---
 
-## 8. Known Integration Gaps
+## 8. Integration Architecture Status
 
-| Gap ID | Description | Status |
+| Feature / Gap ID | Description | Status |
 |---|---|---|
-| F4 | Rate limiter in-memory only (not distributed) | Planned: Upstash migration |
-| F3 | CSP `unsafe-eval` previously allowed | **Resolved**: nonce-based CSP |
-| D11 | Reimbursement two-stage routing unenforced | Planned: implement two-stage flow |
+| F4 | Rate limiter in-memory with Upstash fallback | Configured (in-memory dev / Upstash prod) |
+| F3 | Strict nonce-based CSP headers | **Resolved**: Cryptographic nonces enforced |
+| D11 | Reimbursement two-stage routing (`manager_then_hr`) | **Resolved**: Multi-stage state machine active |
 | — | No SSO/MFA integration | Out of scope (Phase 1 MVP) |
 | — | No bank payment gateway | Out of scope (Phase 1 MVP) |
 | — | No ERP/accounting integration | Out of scope (Phase 1 MVP) |

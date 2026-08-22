@@ -1,7 +1,7 @@
 -- ============================================================================
 -- HRMS v2.7 — Master Combined Database Initializer Script
 -- Generated Automatically via scripts/db-apply.mjs
--- Source: schema/00_setup.sql through 22_comprehensive_performance_indexes.sql + bootstrap
+-- Source: schema/00_setup.sql through 24_payroll_dirty_triggers.sql + bootstrap
 -- ============================================================================
 
 -- BEGIN FILE: 00_setup.sql
@@ -531,7 +531,8 @@ returns boolean language sql immutable as $$
     ('active','suspended'), ('suspended','active'),
     ('suspended','offboarded'),
     ('active','notice_period'), ('notice_period','active'), ('notice_period','offboarded'),
-    ('active','offboarded')
+    ('active','offboarded'),
+    ('withdrawn','active')
   )
 $$;
 
@@ -1189,7 +1190,8 @@ create table leave_requests (
   status                leave_request_status not null default 'pending',
   current_approver_id   uuid references employees(id),
   created_at            timestamptz not null default now(),
-  updated_at            timestamptz not null default now()
+  updated_at            timestamptz not null default now(),
+  constraint chk_half_day_single_date check (duration_type = 'full_day' or start_date = end_date)
 );
 
 create table leave_request_approvals (
@@ -1255,6 +1257,8 @@ declare
   v_sandwich boolean;
   v_curr date := p_start_date;
   v_days numeric := 0;
+  v_is_single_day boolean := (p_start_date = p_end_date);
+begin
   -- Guard against invalid or excessively large date ranges (> 365 days)
   if p_end_date < p_start_date then
     raise exception 'End date cannot precede start date in calculate_leave_days';
@@ -1763,6 +1767,9 @@ create table payroll_periods (
   end_date     date not null,
   cutoff_date  date not null,
   status       payroll_period_status not null default 'draft',
+  is_dirty     boolean not null default false,
+  dirty_reason text,
+  dirty_at     timestamptz,
   created_at   timestamptz not null default now(),
   unique (year, month)
 );
@@ -3214,6 +3221,437 @@ create index if not exists idx_audit_logs_correlation
 
 
 -- END FILE: 22_comprehensive_performance_indexes.sql
+
+-- BEGIN FILE: 23_atomic_payroll_run.sql
+-- ============================================================================
+-- HRMS v2.7 — Module 23: Atomic Payroll Run Stored Procedure
+-- Database Target: PostgreSQL / Supabase
+-- Target File: schema/23_atomic_payroll_run.sql
+-- Strictly aligned with FR §5.2, §5.3, §5.7 & ADR 0003
+-- ============================================================================
+--
+-- DEPENDENCIES: 09_payroll.sql (payroll_periods, payroll_revisions, payslips)
+-- Provides: execute_atomic_payroll_run() function========
+
+create or replace function execute_atomic_payroll_run(
+  p_period_id uuid,
+  p_revision_id uuid,
+  p_payslips jsonb[]
+) returns table (
+  success boolean,
+  processed_count integer,
+  error_message text
+) language plpgsql security definer as $$
+declare
+  v_processed integer := 0;
+  v_item jsonb;
+  v_period_status payroll_period_status;
+  v_rev_status revision_status;
+  v_emp_id uuid;
+begin
+  -- 1. Acquire row-level lock on period to prevent concurrent processing
+  select status into v_period_status
+  from payroll_periods
+  where id = p_period_id
+  for update;
+
+  if not found then
+    return query select false, 0, 'Payroll period not found';
+    return;
+  end if;
+
+  if v_period_status in ('finalized', 'published') then
+    return query select false, 0, 'Cannot execute payroll on finalized or published period';
+    return;
+  end if;
+
+  -- 2. Verify revision row lock
+  select status into v_rev_status
+  from payroll_revisions
+  where id = p_revision_id and payroll_period_id = p_period_id
+  for update;
+
+  if not found then
+    return query select false, 0, 'Payroll revision not found for this period';
+    return;
+  end if;
+
+  -- 3. Upsert each payslip inside the atomic transaction
+  if p_payslips is not null and array_length(p_payslips, 1) > 0 then
+    foreach v_item in array p_payslips loop
+      v_emp_id := (v_item->>'employee_id')::uuid;
+
+      if v_emp_id is null then
+        raise exception 'Employee ID is missing in payslip payload';
+      end if;
+
+      insert into payslips (
+        payroll_revision_id, employee_id, year, month,
+        payable_units, lop_units, gross_earnings, total_deductions, net_pay, is_published
+      ) values (
+        p_revision_id,
+        v_emp_id,
+        (v_item->>'year')::integer,
+        (v_item->>'month')::integer,
+        coalesce((v_item->>'payable_units')::numeric, 0),
+        coalesce((v_item->>'lop_units')::numeric, 0),
+        coalesce((v_item->>'gross_earnings')::numeric, 0),
+        coalesce((v_item->>'total_deductions')::numeric, 0),
+        coalesce((v_item->>'net_pay')::numeric, 0),
+        false
+      ) on conflict (payroll_revision_id, employee_id) do update set
+        payable_units = excluded.payable_units,
+        lop_units = excluded.lop_units,
+        gross_earnings = excluded.gross_earnings,
+        total_deductions = excluded.total_deductions,
+        net_pay = excluded.net_pay;
+
+      v_processed := v_processed + 1;
+    end loop;
+  end if;
+
+  -- 4. Update revision aggregate totals from individual payslips
+  update payroll_revisions set
+    total_employees = v_processed,
+    total_gross = coalesce((select sum(gross_earnings) from payslips where payroll_revision_id = p_revision_id), 0),
+    total_deductions = coalesce((select sum(total_deductions) from payslips where payroll_revision_id = p_revision_id), 0),
+    total_net = coalesce((select sum(net_pay) from payslips where payroll_revision_id = p_revision_id), 0),
+    executed_at = now()
+  where id = p_revision_id;
+
+  -- 5. Transition period status to 'validated'
+  update payroll_periods
+  set status = 'validated'
+  where id = p_period_id;
+
+  return query select true, v_processed, null::text;
+exception when others then
+  return query select false, 0, sqlerrm::text;
+end;
+$$;
+
+
+-- END FILE: 23_atomic_payroll_run.sql
+
+-- BEGIN FILE: 24_payroll_dirty_triggers.sql
+-- ============================================================================
+-- HRMS v2.7 — Module 24: Payroll Dirty State Tracking Triggers
+-- Database Target: PostgreSQL / Supabase
+-- Target File: schema/24_payroll_dirty_triggers.sql
+-- Strictly aligned with FR §5.2, §5.7 & ADR 0003
+-- ============================================================================
+--
+-- Automatically marks validated/finalized/published payroll periods as is_dirty = true
+-- with dirty_reason when retroactive attendance punches or leave requests occur.
+
+create or replace function flag_payroll_period_dirty_on_attendance() returns trigger
+language plpgsql as $$
+declare
+  v_att_date date;
+  v_emp_id uuid;
+begin
+  v_att_date := coalesce(new.attendance_date, old.attendance_date);
+  v_emp_id := coalesce(new.employee_id, old.employee_id);
+
+  update payroll_periods
+  set is_dirty = true,
+      dirty_reason = format('Retroactive attendance change for employee %s on date %s', v_emp_id, v_att_date),
+      dirty_at = now()
+  where v_att_date between start_date and end_date
+    and status in ('validated', 'finalized', 'published');
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_attendance_payroll_dirty on attendance_records;
+create trigger trg_attendance_payroll_dirty
+  after insert or update or delete on attendance_records
+  for each row execute function flag_payroll_period_dirty_on_attendance();
+
+create or replace function flag_payroll_period_dirty_on_leave() returns trigger
+language plpgsql as $$
+declare
+  v_start date;
+  v_end date;
+  v_emp_id uuid;
+begin
+  v_start := coalesce(new.start_date, old.start_date);
+  v_end := coalesce(new.end_date, old.end_date);
+  v_emp_id := coalesce(new.employee_id, old.employee_id);
+
+  update payroll_periods
+  set is_dirty = true,
+      dirty_reason = format('Retroactive leave change for employee %s for range %s..%s', v_emp_id, v_start, v_end),
+      dirty_at = now()
+  where (start_date <= v_end and end_date >= v_start)
+    and status in ('validated', 'finalized', 'published');
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_leave_payroll_dirty on leave_requests;
+create trigger trg_leave_payroll_dirty
+  after insert or update or delete on leave_requests
+  for each row execute function flag_payroll_period_dirty_on_leave();
+
+-- 3. Salary Structure Change Trigger
+create or replace function flag_payroll_period_dirty_on_salary() returns trigger
+language plpgsql as $$
+declare
+  v_emp_id uuid;
+begin
+  v_emp_id := coalesce(new.employee_id, old.employee_id);
+
+  update payroll_periods
+  set is_dirty = true,
+      dirty_reason = format('Salary structure modified for employee %s', v_emp_id),
+      dirty_at = now()
+  where status in ('validated', 'finalized', 'published');
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_salary_payroll_dirty on employee_salary_structures;
+create trigger trg_salary_payroll_dirty
+  after insert or update or delete on employee_salary_structures
+  for each row execute function flag_payroll_period_dirty_on_salary();
+
+
+-- END FILE: 24_payroll_dirty_triggers.sql
+
+-- BEGIN FILE: 25_atomic_assignment_mutations.sql
+-- ============================================================================
+-- HRMS v2.7 — Module 25: Atomic Effective-Dated Assignment Mutations
+-- Database Target: PostgreSQL / Supabase
+-- Target File: schema/25_atomic_assignment_mutations.sql
+-- Strictly aligned with FR §2.1, §3.5 & ADR 0003
+-- ============================================================================
+--
+-- DEPENDENCIES: 02_org.sql (employee_department_assignment, employee_manager_assignment, employee_designation_assignment),
+--               04_work_calendar.sql (employee_work_calendar_assignment)
+-- Provides: update_employee_manager_assignment(), update_employee_department_assignment(),
+--           update_employee_designation_assignment(), update_employee_work_calendar_assignment()
+
+-- 1. Manager Assignment Atomic Mutation
+create or replace function update_employee_manager_assignment(
+  p_employee_id uuid,
+  p_manager_id uuid,
+  p_effective_from date,
+  p_created_by uuid default null
+) returns uuid language plpgsql security definer as $$
+declare
+  v_existing record;
+  v_new_id uuid;
+begin
+  if p_effective_from is null then
+    raise exception 'effective_from cannot be null';
+  end if;
+
+  -- Row-level lock on existing open assignment
+  select id, effective_from into v_existing
+  from employee_manager_assignment
+  where employee_id = p_employee_id and effective_to is null
+  for update;
+
+  if found then
+    if v_existing.effective_from = p_effective_from then
+      -- Same day change: update existing record directly
+      update employee_manager_assignment
+      set manager_id = p_manager_id
+      where id = v_existing.id
+      returning id into v_new_id;
+      return v_new_id;
+    elsif v_existing.effective_from < p_effective_from then
+      -- Close previous open assignment at day before new effective_from
+      update employee_manager_assignment
+      set effective_to = p_effective_from - 1
+      where id = v_existing.id;
+
+      insert into employee_manager_assignment (
+        employee_id, manager_id, effective_from, effective_to, created_by
+      ) values (
+        p_employee_id, p_manager_id, p_effective_from, null, p_created_by
+      ) returning id into v_new_id;
+      return v_new_id;
+    else
+      raise exception 'New assignment effective_from (%) cannot precede existing assignment start date (%)',
+        p_effective_from, v_existing.effective_from;
+    end if;
+  else
+    insert into employee_manager_assignment (
+      employee_id, manager_id, effective_from, effective_to, created_by
+    ) values (
+      p_employee_id, p_manager_id, p_effective_from, null, p_created_by
+    ) returning id into v_new_id;
+    return v_new_id;
+  end if;
+end;
+$$;
+
+-- 2. Department Assignment Atomic Mutation
+create or replace function update_employee_department_assignment(
+  p_employee_id uuid,
+  p_department_id uuid,
+  p_effective_from date,
+  p_created_by uuid default null
+) returns uuid language plpgsql security definer as $$
+declare
+  v_existing record;
+  v_new_id uuid;
+begin
+  if p_effective_from is null then
+    raise exception 'effective_from cannot be null';
+  end if;
+
+  select id, effective_from into v_existing
+  from employee_department_assignment
+  where employee_id = p_employee_id and effective_to is null
+  for update;
+
+  if found then
+    if v_existing.effective_from = p_effective_from then
+      update employee_department_assignment
+      set department_id = p_department_id
+      where id = v_existing.id
+      returning id into v_new_id;
+      return v_new_id;
+    elsif v_existing.effective_from < p_effective_from then
+      update employee_department_assignment
+      set effective_to = p_effective_from - 1
+      where id = v_existing.id;
+
+      insert into employee_department_assignment (
+        employee_id, department_id, effective_from, effective_to, created_by
+      ) values (
+        p_employee_id, p_department_id, p_effective_from, null, p_created_by
+      ) returning id into v_new_id;
+      return v_new_id;
+    else
+      raise exception 'New assignment effective_from (%) cannot precede existing assignment start date (%)',
+        p_effective_from, v_existing.effective_from;
+    end if;
+  else
+    insert into employee_department_assignment (
+      employee_id, department_id, effective_from, effective_to, created_by
+    ) values (
+      p_employee_id, p_department_id, p_effective_from, null, p_created_by
+    ) returning id into v_new_id;
+    return v_new_id;
+  end if;
+end;
+$$;
+
+-- 3. Designation Assignment Atomic Mutation
+create or replace function update_employee_designation_assignment(
+  p_employee_id uuid,
+  p_title text,
+  p_effective_from date,
+  p_created_by uuid default null
+) returns uuid language plpgsql security definer as $$
+declare
+  v_existing record;
+  v_new_id uuid;
+begin
+  if p_effective_from is null then
+    raise exception 'effective_from cannot be null';
+  end if;
+
+  select id, effective_from into v_existing
+  from employee_designation_assignment
+  where employee_id = p_employee_id and effective_to is null
+  for update;
+
+  if found then
+    if v_existing.effective_from = p_effective_from then
+      update employee_designation_assignment
+      set title = p_title
+      where id = v_existing.id
+      returning id into v_new_id;
+      return v_new_id;
+    elsif v_existing.effective_from < p_effective_from then
+      update employee_designation_assignment
+      set effective_to = p_effective_from - 1
+      where id = v_existing.id;
+
+      insert into employee_designation_assignment (
+        employee_id, title, effective_from, effective_to, created_by
+      ) values (
+        p_employee_id, p_title, p_effective_from, null, p_created_by
+      ) returning id into v_new_id;
+      return v_new_id;
+    else
+      raise exception 'New assignment effective_from (%) cannot precede existing assignment start date (%)',
+        p_effective_from, v_existing.effective_from;
+    end if;
+  else
+    insert into employee_designation_assignment (
+      employee_id, title, effective_from, effective_to, created_by
+    ) values (
+      p_employee_id, p_title, p_effective_from, null, p_created_by
+    ) returning id into v_new_id;
+    return v_new_id;
+  end if;
+end;
+$$;
+
+-- 4. Work Calendar Assignment Atomic Mutation
+create or replace function update_employee_work_calendar_assignment(
+  p_employee_id uuid,
+  p_calendar_template_id uuid,
+  p_effective_from date,
+  p_created_by uuid default null
+) returns uuid language plpgsql security definer as $$
+declare
+  v_existing record;
+  v_new_id uuid;
+begin
+  if p_effective_from is null then
+    raise exception 'effective_from cannot be null';
+  end if;
+
+  select id, effective_from into v_existing
+  from employee_work_calendar_assignment
+  where employee_id = p_employee_id and effective_to is null
+  for update;
+
+  if found then
+    if v_existing.effective_from = p_effective_from then
+      update employee_work_calendar_assignment
+      set calendar_template_id = p_calendar_template_id
+      where id = v_existing.id
+      returning id into v_new_id;
+      return v_new_id;
+    elsif v_existing.effective_from < p_effective_from then
+      update employee_work_calendar_assignment
+      set effective_to = p_effective_from - 1
+      where id = v_existing.id;
+
+      insert into employee_work_calendar_assignment (
+        employee_id, calendar_template_id, effective_from, effective_to, created_by
+      ) values (
+        p_employee_id, p_calendar_template_id, p_effective_from, null, p_created_by
+      ) returning id into v_new_id;
+      return v_new_id;
+    else
+      raise exception 'New assignment effective_from (%) cannot precede existing assignment start date (%)',
+        p_effective_from, v_existing.effective_from;
+    end if;
+  else
+    insert into employee_work_calendar_assignment (
+      employee_id, calendar_template_id, effective_from, effective_to, created_by
+    ) values (
+      p_employee_id, p_calendar_template_id, p_effective_from, null, p_created_by
+    ) returning id into v_new_id;
+    return v_new_id;
+  end if;
+end;
+$$;
+
+
+-- END FILE: 25_atomic_assignment_mutations.sql
 
 -- BEGIN FILE: bootstrap/01_system_admin.sql
 -- ============================================================================

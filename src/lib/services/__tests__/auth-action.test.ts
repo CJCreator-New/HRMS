@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { TEST_CREDENTIALS } from "./helpers/test-credentials";
 
 // Enable mock mode for all auth tests
 process.env.NEXT_PUBLIC_MOCK_AUTH = "true";
@@ -96,7 +97,7 @@ describe("loginAction", () => {
 
     const fd = new FormData();
     fd.set("email", "hradmin@company.com");
-    fd.set("password", "Password123!");
+    fd.set("password", TEST_CREDENTIALS.defaultPassword);
     await expect(loginAction(fd)).resolves.toEqual({ success: true });
     expect(cookieStore.set).toHaveBeenCalledWith(
       "sb-access-token",
@@ -153,9 +154,9 @@ describe("changePasswordAction", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const fd = new FormData();
-    fd.set("newPassword", "NewPassword123!");
+    fd.set("newPassword", TEST_CREDENTIALS.newPassword);
     await expect(changePasswordAction(fd)).resolves.toEqual({ success: true });
-    expect(fake.auth.updateUser).toHaveBeenCalledWith({ password: "NewPassword123!" });
+    expect(fake.auth.updateUser).toHaveBeenCalledWith({ password: TEST_CREDENTIALS.newPassword });
     expect(updates[0].payload).toMatchObject({
       must_change_password: false,
       status: "active",
@@ -195,9 +196,9 @@ describe("changePasswordAction", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const fd = new FormData();
-    fd.set("newPassword", "NewPassword123!");
+    fd.set("newPassword", TEST_CREDENTIALS.newPassword);
     await expect(changePasswordAction(fd)).resolves.toEqual({ success: true });
-    expect(fake.auth.updateUser).toHaveBeenCalledWith({ password: "NewPassword123!" });
+    expect(fake.auth.updateUser).toHaveBeenCalledWith({ password: TEST_CREDENTIALS.newPassword });
     // Should NOT insert default role because pre-assigned roles exist
     expect(roleInserts.length).toBe(0);
     expect(updates[0].payload).toMatchObject({
@@ -236,7 +237,7 @@ describe("changePasswordAction", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const fd = new FormData();
-    fd.set("newPassword", "NewPassword123!");
+    fd.set("newPassword", TEST_CREDENTIALS.newPassword);
     await expect(changePasswordAction(fd)).resolves.toEqual({ success: true });
     expect(roleInserts.length).toBe(1);
     expect(roleInserts[0]).toEqual({
@@ -251,7 +252,7 @@ describe("changePasswordAction", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const fd = new FormData();
-    fd.set("newPassword", "NewPassword123!");
+    fd.set("newPassword", TEST_CREDENTIALS.newPassword);
     await expect(changePasswordAction(fd)).resolves.toEqual({
       error: "Unauthenticated session.",
     });

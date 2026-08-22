@@ -1,3 +1,5 @@
+import { previousDateString } from "@/lib/utils/date-utils";
+
 /**
  * Compensation engine — pure salary & encashment calculation helpers.
  *
@@ -36,7 +38,5 @@ export function computeSalaryBreakdown(annualCtc: number): {
  * previously-open salary structure. Returns "" for an invalid date.
  */
 export function previousDate(dateStr: string): string {
-  const ms = new Date(dateStr).getTime();
-  if (Number.isNaN(ms)) return "";
-  return new Date(ms - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  return previousDateString(dateStr);
 }

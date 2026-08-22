@@ -39,6 +39,9 @@ create table payroll_periods (
   end_date     date not null,
   cutoff_date  date not null,
   status       payroll_period_status not null default 'draft',
+  is_dirty     boolean not null default false,
+  dirty_reason text,
+  dirty_at     timestamptz,
   created_at   timestamptz not null default now(),
   unique (year, month)
 );

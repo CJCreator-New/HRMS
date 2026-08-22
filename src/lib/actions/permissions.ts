@@ -5,6 +5,7 @@ import { computePermissionDurationMinutes, computeCompOffExpiryDate } from "@/li
 import { assertPermission, assertAnyPermission, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { createNotificationAction } from "@/lib/actions/notifications";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
+import { getTodayDateStringIST } from "@/lib/utils/date-utils";
 import { writeAuditLogAction } from "@/lib/actions/audit";
 import type { CompOffGrantRecord } from "@/lib/actions/leave";
 
@@ -28,11 +29,21 @@ export async function applyShortPermissionAction(
 
   const { data: emp } = await supabase
     .from("employees")
-    .select("id, full_name, manager_id")
+    .select("id, full_name")
     .eq("auth_user_id", user.id)
     .single();
 
   if (!emp) return { error: "Employee record not found" };
+
+  // Resolve manager from effective-dated manager assignment table (P0 Blocker #3)
+  const { data: mgrAssignment } = await supabase
+    .from("employee_manager_assignment")
+    .select("manager_id")
+    .eq("employee_id", emp.id)
+    .is("effective_to", null)
+    .maybeSingle();
+
+  const managerId = mgrAssignment?.manager_id || null;
 
   // Calculate duration in minutes
   const durationMinutes = computePermissionDurationMinutes(startTime, endTime);
@@ -72,16 +83,16 @@ export async function applyShortPermissionAction(
       duration_minutes: durationMinutes,
       reason,
       status: "pending",
-      approver_id: emp.manager_id || null,
+      approver_id: managerId,
     })
     .select()
     .single();
 
   if (error) return { error: error.message };
 
-  if (emp.manager_id) {
+  if (managerId) {
     await createNotificationAction(
-      emp.manager_id,
+      managerId,
       "New Permission Request",
       `${emp.full_name} has requested a ${durationMinutes}-minute permission on ${permissionDate}.`,
       "/approvals"
@@ -104,7 +115,8 @@ export async function getShortPermissionsAction() {
 
   if (!emp) return { requests: [], monthlyUsedMinutes: 0 };
 
-  const currentMonthStart = new Date().toISOString().slice(0, 7) + "-01";
+  const todayStr = getTodayDateStringIST();
+  const currentMonthStart = todayStr.slice(0, 7) + "-01";
 
   const [{ data, error }, { data: monthRequests }] = await Promise.all([
     supabase
@@ -226,7 +238,7 @@ export async function manualCreditCompOffAction(
     }
   }
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = getTodayDateStringIST();
   const expiryDate = computeCompOffExpiryDate(today, expiryDays);
 
   const { data: grant, error } = await supabase

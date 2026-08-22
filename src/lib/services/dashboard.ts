@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import type { CurrentUserInfo } from "@/lib/auth/current-user";
+import { getTodayDateStringIST } from "@/lib/utils/date-utils";
 
 /**
  * Server-side dashboard data (Slice 1 — RSC conversion).
@@ -30,7 +31,7 @@ export interface DashboardData {
   punch: PunchState | null;
 }
 
-const todayIso = () => new Date().toISOString().split("T")[0];
+const todayIso = () => getTodayDateStringIST();
 
 export async function getDashboardData(userInfo: CurrentUserInfo): Promise<DashboardData> {
   const supabase = await createClient();

@@ -34,7 +34,14 @@ describe("applyShortPermissionAction", () => {
       respond: (state) => {
         if (state.table === "employees" && state.method === "select") {
           return {
-            data: { id: "emp-1", full_name: "Alice", manager_id: overrides.managerId === undefined ? "mgr-1" : overrides.managerId },
+            data: { id: "emp-1", full_name: "Alice" },
+            error: null,
+          };
+        }
+        if (state.table === "employee_manager_assignment" && state.method === "select") {
+          const mgr = overrides.managerId === undefined ? "mgr-1" : overrides.managerId;
+          return {
+            data: mgr ? { manager_id: mgr } : null,
             error: null,
           };
         }

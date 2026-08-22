@@ -81,9 +81,6 @@ export async function writeAuditLogAction(params: WriteAuditLogParams) {
     const csrfError = await validateRequestOrigin();
     if (csrfError) return { error: csrfError.error };
 
-    const permError = await assertPermission("audit.view");
-    if (permError) return { error: permError.error };
-
     params.action = sanitizeInput(params.action);
     params.entityType = sanitizeInput(params.entityType);
     if (params.entityId) params.entityId = sanitizeInput(params.entityId);

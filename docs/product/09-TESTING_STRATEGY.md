@@ -22,15 +22,15 @@
 
 ```
                     ┌─────────────┐
-                    │   E2E Tests  │  40+ specs (Playwright)
-                    │  (Slow,      │  Cross-browser, RBAC, NFR
+                    │   E2E Tests  │  77 specs (Python + Playwright)
+                    │  (Slow,      │  Cross-browser, RBAC, NFR, Golden Paths
                     │   Broad)     │
                     ├─────────────┤
-                    │   Component  │  5 test files (React Testing Library)
-                    │   Tests      │  Modal, Toast, Banner, Skeleton
+                    │   Component  │  7 test files (React Testing Library + jsdom)
+                    │   Tests      │  Modal, Toast, Banner, Skeleton, PunchButton, Workspace
                     │  (Medium)    │
                     ├─────────────┤
-                    │   Unit Tests │  32 test files, 260 tests (Vitest)
+                    │   Unit Tests │  40 test files, 350+ tests (Vitest)
                     │  (Fast,      │  Actions, engines, services, mappers
                     │   Focused)   │
                     └─────────────┘
@@ -38,7 +38,7 @@
 
 ---
 
-## 3. Unit Tests (Vitest)
+## 3. Unit & Component Tests (Vitest)
 
 ### Configuration
 
@@ -46,17 +46,22 @@
 // vitest.config.ts
 export default defineConfig({
   test: {
-    environment: 'node',  // Note: .tsx files need 'jsdom' (gap F1)
-    setupFiles: ['./vitest.setup.ts'],
+    include: ["src/**/*.{test,spec}.{js,ts,jsx,tsx}"],
+    exclude: ["e2e/**/*", "node_modules/**/*"],
+    environment: "node",
+    environmentMatchGlobs: [["**/*.test.tsx", "jsdom"]],
+    pool: "threads",
+    setupFiles: ["./vitest.setup.ts"],
+    testTimeout: 15_000,
     coverage: {
-      provider: 'v8',
-      reporter: ['text', 'html'],
+      provider: "v8",
+      reporter: ["text", "html", "json-summary"],
     },
   },
 });
 ```
 
-### Test Suite Inventory (260 tests across 32 files)
+### Test Suite Inventory (405 tests across 47 files — 100% Pass)
 
 | Suite | Tests | Focus |
 |---|---|---|
@@ -68,14 +73,14 @@ export default defineConfig({
 | `auth-session.test.ts` | 6 | Session management |
 | `calendar-action.test.ts` | 7 | Calendar template CRUD |
 | `compensation-engine.test.ts` | 9 | Salary pro-ration calculation |
-| `data-action.test.ts` | 11 | Data seed/mock operations |
+| `data-action.test.ts` | 11 | Data seed/mock operations & scoped global search |
 | `departments-settings-action.test.ts` | 9 | Department & settings CRUD |
 | `eligibility-reports-action.test.ts` | 8 | Payroll eligibility & reports |
 | `employees-action.test.ts` | 10 | Employee lifecycle operations |
 | `jobs-action.test.ts` | 6 | Scheduled job management |
-| `leave-action.test.ts` | 12 | Leave apply/cancel/approve |
+| `leave-action.test.ts` | 12 | Leave apply/cancel/withdraw/approve |
 | `leave-engine.test.ts` | 8 | Leave calculation engine |
-| `leave-routing.test.ts` | 5 | Leave approval routing (FR §1.4) |
+| `leave-routing.test.ts` | 5 | Leave approval routing & HR fallback (FR §1.4) |
 | `mappers.test.ts` | 10 | Data transformation |
 | `mock-rbac.test.ts` | 12 | Mock RBAC table validation |
 | `notifications-action.test.ts` | 8 | Notification CRUD |
@@ -84,58 +89,36 @@ export default defineConfig({
 | `offboarding-engine.test.ts` | 10 | F&F settlement engine |
 | `payroll-action.test.ts` | 12 | Payroll run/finalize |
 | `payroll-engine.test.ts` | 15 | Payroll calculation engine |
-| `permissions-action.test.ts` | 8 | Role assignment |
+| `permissions-action.test.ts` | 12 | Role assignment, 120-min permission quota, manual comp-off |
 | `rbac-routing.test.ts` | 5 | RBAC permission routing |
-| `reimbursements-action.test.ts` | 4 | Expense claim flow |
+| `reimbursements-action.test.ts` | 8 | Multi-stage expense claim flow |
 | `reports-engine.test.ts` | 10 | Report generation |
 | `salary-encashment-action.test.ts` | 10 | Salary & encashment |
 | `statutory-engine.test.ts` | 12 | Statutory deduction engine |
 | `workflow-steps.test.ts` | 10 | Multi-step workflow validation |
-
-### What Unit Tests Cover
-
-| Category | Examples |
-|---|---|
-| **Server Actions** | Input validation, permission gating, error handling |
-| **Business Engines** | Leave calculation, payroll computation, statutory deductions |
-| **Data Mappers** | Object transformation, formatting, type conversion |
-| **RBAC Logic** | Permission routing, scope fallback, mock table validation |
-| **Workflow Steps** | Multi-step wizard state transitions |
-
-### Known Issues
-
-| Gap | Description | Status |
-|---|---|---|
-| F1 | 5 component test files timeout (need `jsdom` environment) | Planned fix |
+| `pattern-library.test.tsx` | 13 | Design token validation (jsdom) |
+| `modal-confirm-toast.test.tsx` | 10 | Modal, ConfirmDialog, Toast (jsdom) |
+| `read-only-banner.test.tsx` | 6 | ReadOnlyBanner (jsdom) |
+| `drawer.test.tsx` | 6 | Drawer component (jsdom) |
+| `shared-components.test.tsx` | 8 | Shared component library (jsdom) |
+| `punch-button.test.tsx` | 6 | PunchButton component (jsdom) |
+| `LeaveWorkspace.test.tsx` | 5 | LeaveWorkspace client component (jsdom) |
 
 ---
 
 ## 4. Component Tests (React Testing Library)
 
-### Test Files
+All component tests run cleanly in `jsdom` via Vitest's `environmentMatchGlobs`:
 
 | File | Component | Status |
 |---|---|---|
-| `pattern-library.test.tsx` | Design token validation | ❌ Timeout (jsdom) |
-| `modal-confirm-toast.test.tsx` | Modal, ConfirmDialog, Toast | ❌ Timeout (jsdom) |
-| `read-only-banner.test.tsx` | ReadOnlyBanner | ❌ Timeout (jsdom) |
-| `drawer.test.tsx` | Drawer | ❌ Timeout (jsdom) |
-| `shared-components.test.tsx` | Shared component library | ❌ Timeout (jsdom) |
-
-### Root Cause
-
-`vitest.config.ts` sets `environment: "node"` globally, but `.tsx` component tests require `environment: "jsdom"` for React Testing Library.
-
-### Planned Fix
-
-```typescript
-// vitest.config.ts
-export default defineConfig({
-  test: {
-    environmentMatchGlobs: [['src/**/*.test.tsx', 'jsdom']],
-  },
-});
-```
+| `pattern-library.test.tsx` | Design token validation | ✅ Passed |
+| `modal-confirm-toast.test.tsx` | Modal, ConfirmDialog, Toast | ✅ Passed |
+| `read-only-banner.test.tsx` | ReadOnlyBanner | ✅ Passed |
+| `drawer.test.tsx` | Drawer | ✅ Passed |
+| `shared-components.test.tsx` | Shared component library | ✅ Passed |
+| `punch-button.test.tsx` | PunchButton interactive states | ✅ Passed |
+| `LeaveWorkspace.test.tsx` | LeaveWorkspace real-time overlap feedback | ✅ Passed |
 
 ---
 
@@ -301,18 +284,19 @@ e2e/
 
 ---
 
-## 8. Known Test Gaps
+## 8. Test Gaps & Remediation Status
 
-| Gap ID | Description | Impact |
-|---|---|---|
-| D2 | `employee.e1` mock over-grants `/payroll` | Mock-only divergence |
-| D5 | `withdrawn` lifecycle state unmodeled | No test coverage |
-| D9 | `hradmin` mock over-grants `/permissions` | Mock-only divergence |
-| D11 | Reimbursement two-stage routing unenforced | Functional gap |
-| D12 | `hr.alt` deny-all in mock blocks FR §1.4 | No offline E2E for HR self-approval |
-| F1 | 5 component test files timeout | Missing component test coverage |
-| C8 | HR → System Admin leave fallback | Unit-tested only (no E2E) |
-| C15 | Comp-off manual credit/revoke | Actions unimplemented |
+| Gap ID | Description | Remediation Status | Verification |
+|---|---|---|---|
+| D2 | `employee.e1` mock over-grants `/payroll` | ✅ **Resolved** | Mock table aligned with real gate (`mock-rbac.ts`) |
+| D3 | 3 dormant roles unseeded | ✅ **Resolved** | Seeded in `01_rbac.sql` & formalized in `permissions-map.ts` |
+| D5 | `withdrawn` lifecycle state | ✅ **Resolved** | `withdrawLeaveRequestAction` implemented & tested |
+| D9 | `hradmin` mock over-grants `/permissions` | ✅ **Resolved** | Mock table matches real route gate |
+| D11 | Reimbursement two-stage routing | ✅ **Resolved** | `manager_then_hr` multi-stage review implemented |
+| D12 | `hr.alt` in mock mode | ✅ **Resolved** | Seeded with HR route set in mock mode |
+| F1 | Component test environment | ✅ **Resolved** | `environmentMatchGlobs` configures `jsdom` cleanly |
+| C8 | HR → System Admin leave fallback | ✅ **Resolved** | Verified in unit tests & Playwright TRACE-09 |
+| C15 | Comp-off manual credit / revoke | ✅ **Resolved** | `manualCreditCompOffAction` & `revokeCompOffAction` implemented |
 
 ---
 

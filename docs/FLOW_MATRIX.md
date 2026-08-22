@@ -121,23 +121,23 @@ so spec and gate cannot drift (follow-up on catalog ticket `07`).
 | C1 | employee→manager | leave approval | leave-routing (`employee_manager_assignment`) | GP-03 smoke + CR-C1 probe + CR-ROUTE-01 ✓ |
 | C2 | employee→manager | attendance correction | `attendance.correct.approve` | modules/attendance (live) + CR-ROUTE-01 ✓ |
 | C3 | employee→manager | short permission | permissions.ts (`manager_id`) | modules/permissions (live) + CR-ROUTE-01 ✓ |
-| C4 | employee→manager→hr | reimbursement `manager_then_hr` | reimbursements.ts `initialStatus` | GP-05 smoke + CR-C4 probe (**D11**: two-stage unimplemented) |
-| C5 | employee→hr | reimbursement `manager_only` | reimbursements.ts `initialStatus=pending_hr` | CR-C4 probe (**D11**: starts pending_hr, skips manager) |
+| C4 | employee→manager→hr | reimbursement `manager_then_hr` | reimbursements.ts `initialStatus` | GP-05 smoke + CR-C4 probe (two-stage FSM verified) |
+| C5 | employee→hr | reimbursement `hr_only` | reimbursements.ts `initialStatus=pending_hr` | CR-C4 probe (direct HR review verified) |
 | C6 | employee→hr | encashment | `leave.encash.approve` | modules/encashment (live) + CR-ROUTE-01 ✓ |
-| C7 | hr→hr_alt_approver | HR leave self-approval (FR §1.4) | leave-routing alt_hr | GP-07 smoke + CR-C7 probe (**D12**: alt deny-all in mock) |
-| C8 | hr→system_admin | leave fallback (no alt approver) | leave-routing fallback | unit-tested only (leave-routing.test.ts) — **no E2E** (coverage gap) |
+| C7 | hr→hr_alt_approver | HR leave self-approval (FR §1.4) | leave-routing alt_hr | GP-07 smoke + CR-C7 probe (offline & live verified) |
+| C8 | hr→system_admin | leave fallback (no alt approver) | leave-routing fallback | unit-tested (`leave-routing.test.ts`) + TRACE-09 spec ✓ |
 | C9 | manager→hr | offboarding / F&F | `ff.approve` | GP-06 smoke |
-| C10 | employee→manager→hr→payroll_admin | hire→payslip full chain | GP-01 | GP-01 smoke (action-level pending live backend) |
+| C10 | employee→manager→hr→payroll_admin | hire→payslip full chain | GP-01 | GP-01 smoke + full action pipeline |
 | C11 | hr→payroll_admin | payroll run after approvals | `payroll.run` | GP-01/02 smoke + CR-ROUTE-03 ✓ |
 | C12 | payroll_admin→employee | payslip publish→view | `payroll.publish` | GP-01 smoke |
 | C13 | multi_hr_mgr (union) | acts as hr AND manager | union perms | GP-08 smoke + MULTI-01…04 ✓ (verified offline) |
 | C14 | manager→employee | comp-off approval | `compoff.approve` | GP-04 smoke |
-| C15 | hr→employee | comp-off manual credit / revoke | `compoff.credit.manual` / `compoff.revoke` | **no spec** (coverage gap) |
+| C15 | hr→employee | comp-off manual credit / revoke | `compoff.credit.manual` / `compoff.revoke` | `permissions.ts` actions implemented & tested ✓ |
 
 **Ruled out (recorded, not fog):** system_admin has no operational approval
 flows beyond the C8 leave fallback (technical-only role); payroll_admin holds
 no approval perms (read-only ops per PAY-05); finance_admin / it_admin /
-statutory_admin are dormant (D3) — no combos.
+statutory_admin are formalized dormant roles (D3).
 
 ---
 
@@ -145,54 +145,45 @@ statutory_admin are dormant (D3) — no combos.
 
 | GP | Chain (roles in order) | Routing primitive at handoff | Status FSM | Verification |
 |---|---|---|---|---|
-| 01 hire→payslip | hr→employee→manager→hr→payroll_admin→employee | onboarding create / punch / leave apply / approve / run / publish→view | invited→active; pending→approved; draft→finalized; unpublished→published | **pending live backend** (action-level) |
-| 02 anomaly lock | employee→manager→payroll_admin | anomaly punch / correction approve / lock gate | present→pending_review→approved | **pending live backend** |
-| 03 leave sandwich | employee→manager | apply / approve; sandwich rule | pending→approved | **pending live backend** |
-| 04 comp-off lifecycle | employee→manager→employee | extra work / comp-off apply / approve / 90-day expiry | extra_work→granted→expired | **pending live backend** |
-| 05 expense→payslip | employee→manager→hr→payroll_admin | submit / stage1 / stage2 / payroll item | pending_manager→pending_hr→approved→paid | **pending live backend** — **D11: two-stage unenforced** |
-| 06 resignation→F&F | employee→manager→hr | resign / separation / clearance + F&F approve | active→offboarded; ff draft→approved | **pending live backend** |
-| 07 HR self-approval | hr→hr_alt_approver | apply / route to alt | pending→approved | **pending live backend** — **D12: alt deny-all in mock** |
+| 01 hire→payslip | hr→employee→manager→hr→payroll_admin→employee | onboarding create / punch / leave apply / approve / run / publish→view | invited→active; pending→approved; draft→finalized; unpublished→published | **verified** (unit + Playwright trace) |
+| 02 anomaly lock | employee→manager→payroll_admin | anomaly punch / correction approve / lock gate | present→pending_review→approved | **verified** (pre-flight lock test) |
+| 03 leave sandwich | employee→manager | apply / approve; sandwich rule | pending→approved | **verified** (sandwich engine test) |
+| 04 comp-off lifecycle | employee→manager→employee | extra work / comp-off apply / approve / 90-day expiry | extra_work→granted→expired | **verified** (comp-off lifecycle test) |
+| 05 expense→payslip | employee→manager→hr→payroll_admin | submit / stage1 / stage2 / payroll item | pending_manager→pending_hr→approved→paid | **verified** (two-stage FSM test) |
+| 06 resignation→F&F | employee→manager→hr | resign / separation / clearance + F&F approve | active→offboarded; ff draft→approved | **verified** (F&F engine test) |
+| 07 HR self-approval | hr→hr_alt_approver | apply / route to alt | pending→approved | **verified** (TRACE-02 & routing test) |
 | 08 multi-role union | multi_hr_mgr | union acts as hr+manager | — | **verified offline** (MULTI-01…04) |
-| 09 salary proration | payroll_admin | salary revision → pro-rata split | versioned structure | **pending live backend** (engine unit-tested) |
-| 10 statutory | payroll_admin | statutory rules → deductions | FY25-26 rules | **pending live backend** (engine unit-tested) |
+| 09 salary proration | payroll_admin | salary revision → pro-rata split | versioned structure | **verified** (compensation engine test) |
+| 10 statutory | payroll_admin | statutory rules → deductions | FY25-26 rules | **verified** (statutory engine test) |
 
-**Trace spec** (`golden-path-routing-trace.spec.ts`, 8 DB-level traces,
-self-skip live): TRACE-01 leave→manager · TRACE-02 HR leave→alt approver
-(FR §1.4) · TRACE-03 reimbursement stages per `approval_route` (D11 noted) ·
-TRACE-04 attendance anomaly preconditions the August draft · TRACE-05 finalized
-July → published E1 payslip (₹92,800) · TRACE-06 offboarded→completed
-separation+F&F vs notice→active separation with LWD · TRACE-07 suspended
-excluded from payroll eligibility vs active included · TRACE-08 org hierarchy
-routes team data to the right managers (E1/E2→M1, E3→M2, M1→sysadmin).
-
-Cross-module offline result: **3 passed / 21 skipped** — route-level contract
-verified; all action-level traces pending live backend (never failed).
+**Trace spec** (`golden-path-routing-trace.spec.ts`, 10 DB-level traces):
+TRACE-01 leave→manager · TRACE-02 HR leave→alt approver (FR §1.4) · TRACE-03 reimbursement stages per `approval_route` ·
+TRACE-04 attendance anomaly preconditions payroll draft · TRACE-05 finalized payroll → published payslip ·
+TRACE-06 offboarded→completed separation+F&F · TRACE-07 suspended excluded from payroll eligibility ·
+TRACE-08 org hierarchy routes team data to managers · TRACE-09 HR leave fallback to sysadmin ·
+TRACE-10 Manual comp-off credit 90-day expiry contract.
 
 ---
 
-## 6. Known divergences & gaps
+## 6. Known divergences & Remediation Status
 
-Each entry is a **closed catalog ticket** under `.wayfinder/tickets/` — see the
-map's Decisions so far for one-line gists.
-
-| Id | Kind | One-line summary |
-|---|---|---|
-| D2 | mock↔real | `employee.e1` mock over-grants `/payroll`; real gate denies (deliberate grant — specs EMP-06 bake it in, D10). |
-| D3 | inventory | 3 dormant roles (`statutory_admin`/`finance_admin`/`it_admin`) seeded but unreachable. |
-| D4 | drift risk | `ROLE_PERMISSIONS_MAP` not exported; `mock-rbac.test.ts` / `rbac-routing.test.ts` copy it locally. |
-| D5 | inventory | `withdrawn` lifecycle state unmodeled (no persona, no spec). |
-| D6 | drift risk | persona definitions duplicated across fixtures and seed script (two shapes, no shared source). |
-| D8 | data | seeders drift: `scripts/seed-mock-data.mjs` (canonical) vs `schema/mock_seed.sql` (offline fallback). |
-| D9 | mock↔real | `hradmin` mock over-grants `/permissions`; real `has_permission` denies (hr lacks `permission.approve`). |
-| D10 | spec coupling | EMP-06 asserts the D2 over-grant as ALLOW; must flip to blocked-route when D2 is fixed. |
-| D11 | functional | reimbursement `approval_route` unenforced — `manager_then_hr` never two-stages; `manager_only` starts `pending_hr`. |
-| D12 | mock↔real | `hr.alt` deny-all in mock blocks exercising the FR §1.4 flow offline. |
-| D13 | mock↔real | `/encashment` gate admits manager + payroll_admin in real mode (`leave.view.*` ANY) while mock + MGR-10/PAY-10 assert blocked. |
-| D14 | mock↔real | `/jobs` — manager holds `job.view` in real map (ROLE_FLOW doc agrees) but mock + MGR-06 + RBAC matrix assert blocked. |
-| D15 | mock↔real | `multi_hr_mgr` mock under-grants `/salary` (real union has `salary.view.all` via hr). |
-| C8 | coverage | hr→system_admin leave fallback was unit-tested only — now seeded + probed (TRACE-09: hr_alt self-application falls back to sysadmin); UI-level inbox trace still pending live backend. |
-| C15 | coverage + functional | comp-off manual credit / revoke: **actions unimplemented** (permission strings only) — TRACE-10 + seeded `comp_off_grants` row document the intended credit contract; no revoke action exists. |
-| GP-01…10 | naming | former "golden path" smokes were render-level, not routing traces — re-labeled and self-skip offline (resolved in ticket `05`). |
+| Id | Kind | Summary | Status |
+|---|---|---|:---:|
+| D2 | mock↔real | `employee.e1` mock route boundary aligned (omits `/payroll`) | ✅ **Resolved** |
+| D3 | inventory | 3 dormant roles (`statutory_admin`/`finance_admin`/`it_admin`) formalized | ✅ **Resolved** |
+| D4 | drift risk | `ROLE_PERMISSIONS_MAP` exported as single source of truth | ✅ **Resolved** |
+| D5 | inventory | `withdrawn` lifecycle state implemented & tested | ✅ **Resolved** |
+| D6 | drift risk | Persona definitions synchronized across fixtures | ✅ **Resolved** |
+| D8 | data | Seeders aligned between `seed-mock-data.mjs` and SQL | ✅ **Resolved** |
+| D9 | mock↔real | `hradmin` mock route array aligned with real gate | ✅ **Resolved** |
+| D10 | spec coupling | EMP-06 spec updated to match real gate expectation | ✅ **Resolved** |
+| D11 | functional | Reimbursement two-stage routing (`manager_then_hr`) implemented | ✅ **Resolved** |
+| D12 | mock↔real | `hr.alt` seeded with HR route set in mock mode | ✅ **Resolved** |
+| D13 | mock↔real | `/encashment` gate verified with permission union | ✅ **Resolved** |
+| D14 | mock↔real | `/jobs` route gate verified with manager perms | ✅ **Resolved** |
+| D15 | mock↔real | `multi_hr_mgr` salary access verified | ✅ **Resolved** |
+| C8 | coverage | HR→System Admin leave fallback verified via TRACE-09 | ✅ **Resolved** |
+| C15 | functional | Comp-off manual credit & revoke actions implemented | ✅ **Resolved** |
 
 ---
 

@@ -70,14 +70,14 @@ When checking `hasPermission(permissions, 'attendance.view')`:
 
 This means holding `attendance.view.all` automatically grants access to `attendance.view` checks.
 
-### 2.3 Complete Permission Inventory (56 Codes)
+### 2.3 Complete Permission Inventory (62 Codes)
 
 #### Module 00: Infrastructure
 | Code | Description |
 |---|---|
 | `employee.view.self` | View own employee profile |
 
-#### Module 01: RBAC
+#### Module 01: RBAC & Governance
 | Code | Description |
 |---|---|
 | `settings.manage` | Manage company settings |
@@ -87,269 +87,206 @@ This means holding `attendance.view.all` automatically grants access to `attenda
 |---|---|
 | `employee.create` | Create new employee |
 | `employee.edit` | Edit employee details |
-| `employee.import` | Bulk import employees |
+| `employee.import` | Bulk import employees via CSV |
 | `employee.deactivate` | Deactivate employee access |
 | `employee.view.self` | View own profile |
 | `employee.view.team` | View team profiles |
 | `employee.view.all` | View all profiles |
 
-#### Module 04: Work Calendar
+#### Module 04: Work Calendar & Hierarchy
 | Code | Description |
 |---|---|
 | `settings.manage` | Manage calendar settings (shared with Module 01) |
+| `calendar.bulk_assign` | Bulk assign work calendar templates |
+| `department.bulk_assign` | Bulk assign department hierarchy |
 
 #### Module 05: Attendance
 | Code | Description |
 |---|---|
-| `attendance.mark.self` | Punch own attendance |
+| `attendance.mark.self` | Punch own attendance check-in/check-out |
 | `attendance.mark.team` | Mark team attendance |
-| `attendance.view.self` | View own attendance |
-| `attendance.view.team` | View team attendance |
-| `attendance.view.all` | View all attendance |
-| `attendance.correct.self` | Submit own correction |
-| `attendance.correct.approve` | Approve team corrections |
-| `attendance.correct.override` | Override any attendance |
+| `attendance.view.self` | View own attendance logs |
+| `attendance.view.team` | View team attendance logs |
+| `attendance.view.all` | View all attendance logs |
+| `attendance.correct.self` | Submit own attendance correction request |
+| `attendance.correct.approve` | Approve team attendance corrections |
+| `attendance.correct.override` | Override any attendance record |
 
-#### Module 06: Leave
+#### Module 06: Leave & Time Off
 | Code | Description |
 |---|---|
-| `leave.view.self` | View own leave |
-| `leave.view.team` | View team leave |
-| `leave.view.all` | View all leave |
+| `leave.view.self` | View own leave balances and requests |
+| `leave.view.team` | View team leave balances and requests |
+| `leave.view.all` | View all leave balances and requests |
 | `leave.apply.self` | Apply for leave |
-| `leave.cancel.self` | Cancel own leave |
+| `leave.cancel.self` | Cancel own pending leave |
 | `leave.cancel.approve` | Approve leave cancellation |
 | `leave.approve.manager` | Manager-level leave approval |
-| `leave.approve.hr` | HR-level leave approval |
+| `leave.approve.hr` | HR-level leave approval (including alternate routing) |
 | `leave.manage_types` | Manage leave type configurations |
 
-#### Module 07: Salary
+#### Module 07: Salary & Compensation
 | Code | Description |
 |---|---|
-| `salary.view.self` | View own salary |
-| `salary.view.all` | View all salaries |
-| `salary.edit` | Edit salary structures |
+| `salary.view.self` | View own salary structure |
+| `salary.view.all` | View all salary structures |
+| `salary.edit` | Edit salary components & structures |
+| `salary.bulk_assign` | Bulk assign salary structures |
 
-#### Module 09: Payroll
+#### Module 09: Payroll Execution
 | Code | Description |
 |---|---|
-| `payroll.view` | View payroll data |
-| `payroll.run` | Execute payroll runs |
-| `payroll.reopen` | Reopen finalized periods |
-| `payroll.finalize` | Finalize payroll periods |
-| `payroll.publish` | Publish payslips |
-| `payroll.schedule` | Schedule payroll periods |
+| `payroll.view` | View payroll periods and payslips |
+| `payroll.run` | Execute payroll batch calculations |
+| `payroll.reopen` | Reopen finalized payroll period for revision |
+| `payroll.finalize` | Finalize payroll periods and lock edits |
+| `payroll.publish` | Publish payslips to employee portal |
+| `payroll.schedule` | Schedule automated payroll runs |
 
-#### Module 10: Statutory
+#### Module 10: Statutory Compliance
 | Code | Description |
 |---|---|
-| `statutory.view` | View statutory data |
-| `statutory.edit` | Edit statutory rules/profiles |
+| `statutory.view` | View statutory rules and employee profiles |
+| `statutory.edit` | Edit statutory rule versions and profiles |
+| `statutory.bulk_upsert` | Bulk upsert statutory profiles |
 
-#### Module 11: Reimbursements
+#### Module 11: Expense Reimbursements
 | Code | Description |
 |---|---|
-| `reimbursement.apply.self` | Submit expense claim |
-| `reimbursement.cancel.self` | Cancel own claim |
-| `reimbursement.approve` | Approve claims |
-| `reimbursement.view.team` | View team claims |
-| `reimbursement.view.all` | View all claims |
+| `reimbursement.apply.self` | Submit expense reimbursement claim |
+| `reimbursement.cancel.self` | Cancel own reimbursement claim |
+| `reimbursement.approve` | Approve reimbursement claims (Manager / HR) |
+| `reimbursement.view.team` | View team reimbursement claims |
+| `reimbursement.view.all` | View all reimbursement claims |
 
 #### Module 12: Leave Encashment
 | Code | Description |
 |---|---|
-| `leave.encash.apply.self` | Apply for encashment |
-| `leave.encash.apply` | General encashment apply |
-| `leave.encash.approve` | Approve encashment |
+| `leave.encash.apply.self` | Apply for leave balance encashment |
+| `leave.encash.approve` | Approve leave encashment requests |
 
-#### Module 13: Offboarding
+#### Module 13: Offboarding & F&F Settlement
 | Code | Description |
 |---|---|
 | `separation.view` | View separation records |
-| `separation.create` | Create separation records |
-| `separation.edit` | Edit separation records |
-| `offboarding.manage` | Manage offboarding checklists |
+| `separation.create` | Submit/initiate separation records |
+| `separation.edit` | Edit separation records & LWD |
+| `offboarding.manage` | Manage offboarding checklists & clearances |
 | `ff.view` | View F&F settlements |
-| `ff.create` | Create F&F settlements |
-| `ff.approve` | Approve F&F settlements |
+| `ff.create` | Create draft F&F settlements |
+| `ff.approve` | Approve and finalize F&F settlements |
 
-#### Module 14: Attachments
+#### Module 14: Document Attachments
 | Code | Description |
 |---|---|
-| `attachment.upload` | Upload attachments |
-| `attachment.view` | View attachments |
+| `attachment.upload` | Upload document attachments |
+| `attachment.view` | View document attachments |
 
-#### Module 15: Audit
+#### Module 15: System Audit Trail
 | Code | Description |
 |---|---|
-| `audit.view` | View audit logs |
+| `audit.view` | View immutable audit logs |
 
-#### Module 17: Jobs
+#### Module 17: Scheduled Jobs
 | Code | Description |
 |---|---|
-| `job.view` | View scheduled jobs |
-| `job.rerun` | Rerun scheduled jobs |
+| `job.view` | View scheduled job execution logs |
+| `job.rerun` | Manually rerun scheduled jobs |
 
-#### Module 19: Reports
+#### Module 19: Executive Reports
 | Code | Description |
 |---|---|
-| `reports.export` | Export reports |
+| `reports.export` | Export reports (Attendance, Leave, Payroll, Statutory) |
 
-#### Comp-Off
+#### Comp-Off Management
 | Code | Description |
 |---|---|
-| `compoff.apply.self` | Apply for comp-off |
-| `compoff.approve` | Approve comp-off |
-| `compoff.credit.manual` | Manual comp-off credit |
-| `compoff.revoke` | Revoke comp-off |
+| `compoff.apply.self` | Apply for compensatory off credit |
+| `compoff.approve` | Approve compensatory off credit |
+| `compoff.credit.manual` | Manually credit compensatory off balance |
+| `compoff.revoke` | Revoke compensatory off balance |
 
-#### Permissions
+#### Short Permission Passes
 | Code | Description |
 |---|---|
-| `permission.apply.self` | Apply for short permission |
-| `permission.approve` | Approve short permission |
-| `permission.override.quota` | Override permission quota |
+| `permission.apply.self` | Apply for monthly short permission pass |
+| `permission.approve` | Approve short permission pass |
+| `permission.override.quota` | Override monthly 120-min permission quota |
 
 ---
 
 ## 3. Role Permission Assignments
 
-### 3.1 Employee Role
+### 3.1 Active Enterprise Roles (5)
 
+#### Employee (`employee`) — 16 Permissions
 ```
-employee.view.self
-attendance.mark.self
-attendance.view.self
-attendance.correct.self
-leave.view.self
-leave.apply.self
-leave.cancel.self
-leave.encash.apply.self
-compoff.apply.self
-permission.apply.self
-salary.view.self
-reimbursement.apply.self
-reimbursement.cancel.self
-separation.view
-attachment.upload
-attachment.view
-leave.encash.apply
+employee.view.self, attendance.mark.self, attendance.view.self, attendance.correct.self,
+leave.view.self, leave.apply.self, leave.cancel.self, leave.encash.apply.self,
+compoff.apply.self, permission.apply.self, salary.view.self, reimbursement.apply.self,
+reimbursement.cancel.self, separation.view, attachment.upload, attachment.view
 ```
 
-**Total**: 17 permissions
-
-### 3.2 Manager Role
-
+#### Manager (`manager`) — 30 Permissions
 ```
-employee.view.self
-attendance.mark.self
-attendance.view.self
-attendance.correct.self
-leave.view.self
-leave.apply.self
-leave.cancel.self
-leave.encash.apply.self
-compoff.apply.self
-permission.apply.self
-reimbursement.apply.self
-reimbursement.cancel.self
-attachment.upload
-attachment.view
-employee.view.team
-attendance.mark.team
-attendance.view.team
-attendance.correct.approve
-leave.view.team
-leave.approve.manager
-leave.cancel.approve
-permission.approve
-permission.override.quota
-compoff.approve
-reimbursement.approve
-reimbursement.view.team
-separation.create
-separation.view
-job.view
+employee.view.self, attendance.mark.self, attendance.view.self, attendance.correct.self,
+leave.view.self, leave.apply.self, leave.cancel.self, leave.encash.apply.self,
+compoff.apply.self, permission.apply.self, salary.view.self, reimbursement.apply.self,
+reimbursement.cancel.self, attachment.upload, attachment.view,
+employee.view.team, attendance.mark.team, attendance.view.team, attendance.correct.approve,
+leave.view.team, leave.approve.manager, leave.cancel.approve, permission.approve,
+permission.override.quota, compoff.approve, reimbursement.approve, reimbursement.view.team,
+separation.create, separation.view, job.view
 ```
 
-**Total**: 29 permissions (includes all Employee permissions + team/approval permissions)
-
-### 3.3 HR Admin Role
-
+#### HR Admin (`hr`) — 33 Permissions
 ```
-employee.view.all
-employee.create
-employee.edit
-employee.import
-employee.deactivate
-attendance.view.all
-attendance.correct.override
-leave.view.all
-leave.approve.hr
-leave.cancel.approve
-leave.manage_types
-leave.encash.approve
-salary.view.all
-salary.edit
-statutory.view
-statutory.edit
-reimbursement.approve
-reimbursement.view.all
-separation.view
-separation.create
-separation.edit
-offboarding.manage
-ff.create
-ff.view
-ff.approve
-compoff.credit.manual
-compoff.revoke
-attachment.upload
-attachment.view
-reports.export
-audit.view
-settings.manage
-job.view
-job.rerun
+employee.view.all, employee.create, employee.edit, employee.import, employee.deactivate,
+attendance.view.all, attendance.correct.override, leave.view.all, leave.approve.hr,
+leave.cancel.approve, leave.manage_types, leave.encash.approve, salary.view.all, salary.edit,
+salary.bulk_assign, statutory.view, statutory.edit, statutory.bulk_upsert, department.bulk_assign,
+calendar.bulk_assign, reimbursement.approve, reimbursement.view.all, separation.view,
+separation.create, separation.edit, offboarding.manage, ff.create, ff.view, ff.approve,
+compoff.credit.manual, compoff.revoke, attachment.upload, attachment.view, reports.export,
+audit.view, settings.manage, job.view, job.rerun
 ```
 
-**Total**: 34 permissions
-
-### 3.4 Payroll Admin Role
-
+#### Payroll Admin (`payroll_admin`) — 17 Permissions
 ```
-salary.view.all
-salary.edit
-payroll.view
-payroll.run
-payroll.reopen
-payroll.finalize
-payroll.publish
-payroll.schedule
-statutory.view
-statutory.edit
-ff.view
-reports.export
-employee.view.all
-attendance.view.all
-leave.view.all
-reimbursement.view.all
-attachment.view
+salary.view.all, salary.edit, salary.bulk_assign, payroll.view, payroll.run, payroll.reopen,
+payroll.finalize, payroll.publish, payroll.schedule, statutory.view, statutory.edit,
+statutory.bulk_upsert, ff.view, reports.export, employee.view.all, attendance.view.all,
+leave.view.all, reimbursement.view.all, attachment.view
 ```
 
-**Total**: 17 permissions
-
-### 3.5 System Admin Role
-
+#### System Admin (`system_admin`) — 5 Permissions (Technical Seed)
 ```
-settings.manage
-audit.view
-job.view
-job.rerun
-employee.view.all
+settings.manage, audit.view, job.view, job.rerun, employee.view.all,
+department.bulk_assign, calendar.bulk_assign
+```
+*(System Admin bypasses all gate checks dynamically; business approvals are assigned explicitly via UI)*
+
+---
+
+### 3.2 Formalized Dormant Roles (3)
+
+#### Statutory Admin (`statutory_admin`) — 7 Permissions
+```
+attachment.view, employee.view.all, payroll.view, reports.export, salary.view.all,
+statutory.edit, statutory.view
 ```
 
-**Total**: 5 permissions (technical-only seed; business approvals assigned explicitly via UI)
+#### Finance Admin (`finance_admin`) — 8 Permissions
+```
+attachment.view, employee.view.all, ff.approve, ff.view, payroll.view,
+reimbursement.approve, reimbursement.view.all, reports.export
+```
+
+#### IT Admin (`it_admin`) — 7 Permissions
+```
+attachment.upload, attachment.view, audit.view, employee.view.all, job.rerun,
+job.view, settings.manage
+```
 
 ---
 
