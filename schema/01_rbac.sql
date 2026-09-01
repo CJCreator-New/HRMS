@@ -139,6 +139,12 @@ $$;
 -- given permission codes (exact match only — no scope suffix). Replaces the
 -- N+1 has_permission loop in middleware for routes with multiple required
 -- permissions (union gate).
+--
+-- NOTE: This function performs EXACT permission code matching only. It does NOT
+-- expand scope suffixes (.self / .team / .all). This is intentional for middleware
+-- route gates which use exact codes. For scoped permission checks (e.g. whether
+-- a manager can view a specific employee's data), use has_permission() with a
+-- target_employee_id instead.
 create or replace function has_any_permission(perm_codes text[])
 returns boolean language plpgsql stable as $$
 declare

@@ -21,6 +21,96 @@ export interface LoginActionResult {
   diagnostic?: unknown;
 }
 
+// ── Extracted helpers ────────────────────────────────────────────────
+
+/** Determines whether mock authentication mode is active for the given email. */
+function resolveIsMockAuth(email: string): boolean {
+  const isKnownMockPersona =
+    (process.env.NODE_ENV !== "production" ||
+      process.env.NEXT_PUBLIC_MOCK_AUTH === "true") &&
+    (email in E2E_MOCK_ALLOWED_ROUTES || email.endsWith("@company.com"));
+
+  return (
+    process.env.NEXT_PUBLIC_MOCK_AUTH === "true" ||
+    isKnownMockPersona ||
+    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL.includes("placeholder") ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL.includes("mock")
+  );
+}
+
+/** Sets a signed mock session cookie (or real access token) on the response. */
+async function setSessionCookie(
+  token: string,
+  maxAge: number,
+  isProduction: boolean
+): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.set("sb-access-token", token, {
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: isProduction,
+    maxAge,
+  });
+}
+
+/** Auto-provisions an employee record on first login if none exists. */
+async function autoProvisionEmployee(
+  supabase: ReturnType<typeof createClient> extends Promise<infer S> ? S : never,
+  userId: string,
+  email: string
+): Promise<void> {
+  const { data: existingEmp } = await supabase
+    .from("employees")
+    .select("id")
+    .eq("auth_user_id", userId)
+    .single();
+
+  if (existingEmp) return;
+
+  const userMeta: Record<string, unknown> = {};
+  const fullName =
+    (userMeta.full_name as string) ||
+    (userMeta.name as string) ||
+    email.split("@")[0];
+  const employeeCode = `EMP-${email.split("@")[0].toUpperCase().slice(0, 8)}`;
+
+  await supabase.from("employees").insert({
+    auth_user_id: userId,
+    email,
+    full_name: fullName,
+    employee_code: employeeCode,
+    date_of_joining: getTodayDateStringIST(),
+    status: "active",
+    must_change_password: false,
+    is_deactivated: false,
+  });
+
+  const { data: defaultRole } = await supabase
+    .from("roles")
+    .select("id")
+    .eq("code", "employee")
+    .single();
+
+  if (defaultRole) {
+    const { data: newEmp } = await supabase
+      .from("employees")
+      .select("id")
+      .eq("auth_user_id", userId)
+      .single();
+
+    if (newEmp) {
+      await supabase.from("employee_roles").insert({
+        employee_id: newEmp.id,
+        role_id: defaultRole.id,
+      });
+    }
+  }
+}
+
+// ── Main login action ───────────────────────────────────────────────
+
 export async function loginAction(formData: FormData): Promise<LoginActionResult> {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { error: csrfError.error };
@@ -38,30 +128,15 @@ export async function loginAction(formData: FormData): Promise<LoginActionResult
     return { error: "Invalid login credentials" };
   }
 
-  const isKnownMockPersona = (process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_MOCK_AUTH === "true") &&
-    (email in E2E_MOCK_ALLOWED_ROUTES || email.endsWith("@company.com"));
-
-  const isMockAuth =
-    process.env.NEXT_PUBLIC_MOCK_AUTH === "true" ||
-    isKnownMockPersona ||
-    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL.includes("placeholder") ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL.includes("mock");
-
-  const sessionMaxAge = rememberMe ? 60 * 60 * 24 * 30 : 60 * 60 * 24; // 30 days if remember me, otherwise 24 hours
+  const isMockAuth = resolveIsMockAuth(email);
+  const sessionMaxAge = rememberMe ? 60 * 60 * 24 * 30 : 60 * 60 * 24;
+  const isProduction = process.env.NODE_ENV === "production";
 
   if (isMockAuth) {
     // Mock mode: skip Supabase auth + rate limiting (no credential verification
     // to protect — the email is signed with expiration for middleware RBAC).
     const signedValue = await signMockCookieValue(email);
-    const cookieStore = await cookies();
-    cookieStore.set("sb-access-token", signedValue, {
-      path: "/",
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: sessionMaxAge,
-    });
+    await setSessionCookie(signedValue, sessionMaxAge, isProduction);
     return { success: true };
   }
 
@@ -174,72 +249,23 @@ export async function loginAction(formData: FormData): Promise<LoginActionResult
           details: authErr?.details,
         },
       };
-    }
-
-    // If session token exists, ensure access cookie is set with appropriate lifespan
-    if (data?.session?.access_token) {
-      const cookieStore = await cookies();
-      cookieStore.set("sb-access-token", data.session.access_token, {
-        path: "/",
-        httpOnly: true,
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-        maxAge: rememberMe ? 60 * 60 * 24 * 30 : (data.session.expires_in || 60 * 60 * 24),
-      });
-    }
-
-    // Successful login — reset rate limit
-    await resetLoginRateLimit(email.toLowerCase());
-
-    // Auto-provision employee record on first login if missing
-    if (data?.user) {
-      const { data: existingEmp } = await supabase
-        .from("employees")
-        .select("id")
-        .eq("auth_user_id", data.user.id)
-        .single();
-
-      if (!existingEmp) {
-        const userMeta = data.user.user_metadata || {};
-        const fullName = userMeta.full_name || userMeta.name || email.split("@")[0];
-        const employeeCode = `EMP-${email.split("@")[0].toUpperCase().slice(0, 8)}`;
-
-        await supabase.from("employees").insert({
-          auth_user_id: data.user.id,
-          email: email,
-          full_name: fullName,
-          employee_code: employeeCode,
-          date_of_joining: getTodayDateStringIST(),
-          status: "active",
-          must_change_password: false,
-          is_deactivated: false,
-        });
-
-        // Assign default employee role if no roles exist
-        const { data: defaultRole } = await supabase
-          .from("roles")
-          .select("id")
-          .eq("code", "employee")
-          .single();
-
-        if (defaultRole) {
-          const { data: newEmp } = await supabase
-            .from("employees")
-            .select("id")
-            .eq("auth_user_id", data.user.id)
-            .single();
-
-          if (newEmp) {
-            await supabase.from("employee_roles").insert({
-              employee_id: newEmp.id,
-              role_id: defaultRole.id,
-            });
-          }
-        }
+    }      // If session token exists, ensure access cookie is set with appropriate lifespan
+      if (data?.session?.access_token) {
+        const cookieMaxAge = rememberMe
+          ? 60 * 60 * 24 * 30
+          : data.session.expires_in || 60 * 60 * 24;
+        await setSessionCookie(data.session.access_token, cookieMaxAge, isProduction);
       }
-    }
 
-    return { success: true };
+      // Successful login — reset rate limit
+      await resetLoginRateLimit(email.toLowerCase());
+
+      // Auto-provision employee record on first login if missing
+      if (data?.user) {
+        await autoProvisionEmployee(supabase, data.user.id, email);
+      }
+
+      return { success: true };
   } catch (err: unknown) {
     const errorObj = err instanceof Error ? err : null;
     console.error("[Supabase Auth Exception / Network / CORS Rejection]:", {
@@ -261,14 +287,7 @@ export async function loginAction(formData: FormData): Promise<LoginActionResult
 
     // In development / test, fallback to signed session token
     const signedValue = await signMockCookieValue(email);
-    const cookieStore = await cookies();
-    cookieStore.set("sb-access-token", signedValue, {
-      path: "/",
-      httpOnly: true,
-      sameSite: "lax",
-      secure: false,
-      maxAge: sessionMaxAge,
-    });
+    await setSessionCookie(signedValue, sessionMaxAge, false);
     console.warn(
       `[Auth] Supabase unreachable — falling back to mock auth. ` +
       `Fix your .env.local (NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY) for production. ` +

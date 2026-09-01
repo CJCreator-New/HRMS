@@ -285,11 +285,10 @@ export async function triggerStaleFfAction(separationId: string) {
   const { error } = await supabase.from("leave_ledger").insert({
     employee_id: ff.employee_id,
     leave_type_id: lt?.id || null,
-    transaction_type: "adjustment",
+    transaction_type: "manual_adjustment",
     days: 0,
     balance_after: 0,
     reference_id: ff.id,
-    notes: "F&F stale re-calculation trigger",
   });
 
   if (error) return { error: error.message };

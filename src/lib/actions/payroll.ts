@@ -12,6 +12,7 @@ import { validateRequestOrigin } from "@/lib/security";
 import { writeAuditLogAction } from "@/lib/actions/audit";
 import { getMonthStartDateString, getMonthEndDateString, getDaysInMonth } from "@/lib/utils/date-utils";
 import { assertIdempotencyKey } from "@/lib/services/idempotency";
+import { toArray } from "@/lib/utils/array";
 
 export async function validatePayrollLockAction(periodId: string) {
   const csrfError = await validateRequestOrigin();
@@ -374,30 +375,26 @@ export async function executeBulkPayrollRunAction(periodId: string, idempotencyK
     };
 
     const attMap = new Map<string, AttRecord[]>();
-    const safeAtts = (Array.isArray(allAttRecords) ? allAttRecords : (allAttRecords ? [allAttRecords] : [])) as AttRecord[];
-    for (const att of safeAtts) {
+    for (const att of toArray<AttRecord>(allAttRecords)) {
       if (!attMap.has(att.employee_id)) attMap.set(att.employee_id, []);
       attMap.get(att.employee_id)!.push(att);
     }
 
     const leaveMap = new Map<string, LeaveReq[]>();
-    const safeLeaves = (Array.isArray(allLeaveReqs) ? allLeaveReqs : (allLeaveReqs ? [allLeaveReqs] : [])) as LeaveReq[];
-    for (const req of safeLeaves) {
+    for (const req of toArray<LeaveReq>(allLeaveReqs)) {
       if (!leaveMap.has(req.employee_id)) leaveMap.set(req.employee_id, []);
       leaveMap.get(req.employee_id)!.push(req);
     }
 
     const salaryMap = new Map<string, SalStruct>();
-    const safeSals = (Array.isArray(allSalStructs) ? allSalStructs : (allSalStructs ? [allSalStructs] : [])) as SalStruct[];
-    for (const sal of safeSals) {
+    for (const sal of toArray<SalStruct>(allSalStructs)) {
       if (sal.employee_id) {
         salaryMap.set(sal.employee_id, sal);
       }
     }
 
     const statMap = new Map<string, StatProfile>();
-    const safeStats = (Array.isArray(allStatProfiles) ? allStatProfiles : (allStatProfiles ? [allStatProfiles] : [])) as StatProfile[];
-    for (const stat of safeStats) {
+    for (const stat of toArray<StatProfile>(allStatProfiles)) {
       if (stat.employee_id) {
         statMap.set(stat.employee_id, stat);
       }

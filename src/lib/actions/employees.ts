@@ -10,6 +10,66 @@ import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 import type { BatchCommitResult } from "@/lib/batch-import/types";
 import { getTodayDateStringIST, previousDateString } from "@/lib/utils/date-utils";
 
+// ── Effective-dated assignment helper ─────────────────────────────────
+
+type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Updates an effective-dated assignment record (department, manager, or designation).
+ * Tries the RPC first; falls back to manual upsert logic if the RPC is unavailable.
+ */
+async function upsertEffectiveDatedAssignment(
+  supabase: SupabaseClient,
+  opts: {
+    employeeId: string;
+    today: string;
+    rpcName: string;
+    rpcPayload: Record<string, unknown>;
+    tableName: string;
+    writeColumn: string;
+    writeValue: unknown;
+  }
+): Promise<void> {
+  const { employeeId, today, rpcName, rpcPayload, tableName, writeColumn, writeValue } = opts;
+
+  const { error: rpcErr } = await supabase.rpc(rpcName, rpcPayload);
+  if (!rpcErr) return;
+
+  // RPC unavailable — manual effective-dated fallback
+  const { data: open } = await supabase
+    .from(tableName)
+    .select("id, effective_from")
+    .eq("employee_id", employeeId)
+    .is("effective_to", null)
+    .maybeSingle();
+
+  if (open) {
+    if (open.effective_from === today) {
+      await supabase
+        .from(tableName)
+        .update({ [writeColumn]: writeValue })
+        .eq("id", open.id);
+    } else {
+      const prevDate = previousDateString(today);
+      await supabase
+        .from(tableName)
+        .update({ effective_to: prevDate })
+        .eq("id", open.id);
+      await supabase.from(tableName).insert({
+        employee_id: employeeId,
+        [writeColumn]: writeValue,
+        effective_from: today,
+      });
+    }
+  } else {
+    await supabase.from(tableName).insert({
+      employee_id: employeeId,
+      [writeColumn]: writeValue,
+      effective_from: today,
+    });
+  }
+}
+
 export async function createEmployeeAction(formData: FormData) {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return csrfError;
@@ -257,6 +317,10 @@ export async function importEmployeesAction(
   };
 }
 
+/**
+ * @deprecated Use `importEmployeesAction` directly — this wrapper exists only
+ * for backward compatibility with existing test imports.
+ */
 export async function importEmployeesCsvAction(rows: Array<{ code: string; name: string; email: string; doj?: string }>) {
   const result = await importEmployeesAction(rows);
   return {
@@ -317,132 +381,39 @@ export async function updateEmployeeAssignmentAction(
   const today = getTodayDateStringIST();
 
   if (departmentId) {
-    const { error: rpcErr } = await supabase.rpc("update_employee_department_assignment", {
-      p_employee_id: employeeId,
-      p_department_id: departmentId,
-      p_effective_from: today,
+    await upsertEffectiveDatedAssignment(supabase, {
+      employeeId,
+      today,
+      rpcName: "update_employee_department_assignment",
+      rpcPayload: { p_employee_id: employeeId, p_department_id: departmentId, p_effective_from: today },
+      tableName: "employee_department_assignment",
+      writeColumn: "department_id",
+      writeValue: departmentId,
     });
-    if (rpcErr) {
-      const { data: openDept } = await supabase
-        .from("employee_department_assignment")
-        .select("id, effective_from")
-        .eq("employee_id", employeeId)
-        .is("effective_to", null)
-        .maybeSingle();
-
-      if (openDept) {
-        if (openDept.effective_from === today) {
-          await supabase
-            .from("employee_department_assignment")
-            .update({ department_id: departmentId })
-            .eq("id", openDept.id);
-        } else {
-          const prevDate = previousDateString(today);
-          await supabase
-            .from("employee_department_assignment")
-            .update({ effective_to: prevDate })
-            .eq("id", openDept.id);
-
-          await supabase.from("employee_department_assignment").insert({
-            employee_id: employeeId,
-            department_id: departmentId,
-            effective_from: today,
-          });
-        }
-      } else {
-        await supabase.from("employee_department_assignment").insert({
-          employee_id: employeeId,
-          department_id: departmentId,
-          effective_from: today,
-        });
-      }
-    }
   }
 
   if (managerId) {
-    const { error: rpcErr } = await supabase.rpc("update_employee_manager_assignment", {
-      p_employee_id: employeeId,
-      p_manager_id: managerId,
-      p_effective_from: today,
+    await upsertEffectiveDatedAssignment(supabase, {
+      employeeId,
+      today,
+      rpcName: "update_employee_manager_assignment",
+      rpcPayload: { p_employee_id: employeeId, p_manager_id: managerId, p_effective_from: today },
+      tableName: "employee_manager_assignment",
+      writeColumn: "manager_id",
+      writeValue: managerId,
     });
-    if (rpcErr) {
-      const { data: openMgr } = await supabase
-        .from("employee_manager_assignment")
-        .select("id, effective_from")
-        .eq("employee_id", employeeId)
-        .is("effective_to", null)
-        .maybeSingle();
-
-      if (openMgr) {
-        if (openMgr.effective_from === today) {
-          await supabase
-            .from("employee_manager_assignment")
-            .update({ manager_id: managerId })
-            .eq("id", openMgr.id);
-        } else {
-          const prevDate = previousDateString(today);
-          await supabase
-            .from("employee_manager_assignment")
-            .update({ effective_to: prevDate })
-            .eq("id", openMgr.id);
-
-          await supabase.from("employee_manager_assignment").insert({
-            employee_id: employeeId,
-            manager_id: managerId,
-            effective_from: today,
-          });
-        }
-      } else {
-        await supabase.from("employee_manager_assignment").insert({
-          employee_id: employeeId,
-          manager_id: managerId,
-          effective_from: today,
-        });
-      }
-    }
   }
 
   if (designationTitle) {
-    const { error: rpcErr } = await supabase.rpc("update_employee_designation_assignment", {
-      p_employee_id: employeeId,
-      p_title: designationTitle,
-      p_effective_from: today,
+    await upsertEffectiveDatedAssignment(supabase, {
+      employeeId,
+      today,
+      rpcName: "update_employee_designation_assignment",
+      rpcPayload: { p_employee_id: employeeId, p_title: designationTitle, p_effective_from: today },
+      tableName: "employee_designation_assignment",
+      writeColumn: "title",
+      writeValue: designationTitle,
     });
-    if (rpcErr) {
-      const { data: openDesig } = await supabase
-        .from("employee_designation_assignment")
-        .select("id, effective_from")
-        .eq("employee_id", employeeId)
-        .is("effective_to", null)
-        .maybeSingle();
-
-      if (openDesig) {
-        if (openDesig.effective_from === today) {
-          await supabase
-            .from("employee_designation_assignment")
-            .update({ title: designationTitle })
-            .eq("id", openDesig.id);
-        } else {
-          const prevDate = previousDateString(today);
-          await supabase
-            .from("employee_designation_assignment")
-            .update({ effective_to: prevDate })
-            .eq("id", openDesig.id);
-
-          await supabase.from("employee_designation_assignment").insert({
-            employee_id: employeeId,
-            title: designationTitle,
-            effective_from: today,
-          });
-        }
-      } else {
-        await supabase.from("employee_designation_assignment").insert({
-          employee_id: employeeId,
-          title: designationTitle,
-          effective_from: today,
-        });
-      }
-    }
   }
 
   return { success: true };
