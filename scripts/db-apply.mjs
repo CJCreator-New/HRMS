@@ -36,10 +36,11 @@ const MODULAR_FILES = [
   "23_atomic_payroll_run.sql",
   "24_payroll_dirty_triggers.sql",
   "25_atomic_assignment_mutations.sql",
+  "26_production_hardening_and_indexes.sql",
   "bootstrap/01_system_admin.sql",
 ];
 
-console.log("Synchronizing schema/combined_init.sql from 27 modular schema files...");
+console.log("Synchronizing schema/combined_init.sql from 28 modular schema files...");
 
 let combinedContent = `-- ============================================================================
 -- HRMS v2.7 — Master Combined Database Initializer Script

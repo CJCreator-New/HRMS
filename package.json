@@ -11,6 +11,8 @@
     "seed:mock": "node scripts/seed-mock-data.mjs",
     "test:unit": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:integration": "vitest run src/lib/services/__tests__/integration",
+    "test:integration:coverage": "vitest run src/lib/services/__tests__/integration --coverage",
     "test:e2e": "playwright test --project=chromium",
     "test:e2e:p0": "playwright test e2e/specs/smoke e2e/specs/rbac --project=chromium",
     "test:e2e:workflows": "playwright test e2e/specs/cross-module --project=chromium",

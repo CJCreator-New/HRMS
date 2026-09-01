@@ -1,9 +1,15 @@
 "use server";
 
+import * as React from "react";
 import { createClient } from "@/lib/supabase/server";
 import { cookies } from "next/headers";
 import { hasMockPermission } from "@/lib/services/mock-rbac";
 import { validateMockCookieValue, resolveMockSession } from "@/lib/auth/mock-cookie";
+
+type CacheFn = <T extends (...args: unknown[]) => unknown>(fn: T) => T;
+const serverCache: CacheFn = typeof (React as unknown as { cache?: CacheFn }).cache === "function"
+  ? (React as unknown as { cache: CacheFn }).cache
+  : <T extends (...args: unknown[]) => unknown>(fn: T): T => fn;
 
 export interface AuthenticatedCaller {
   employeeId: string | null;
@@ -14,7 +20,7 @@ export interface AuthenticatedCaller {
 /**
  * Resolves the authenticated caller's identity (employeeId, email, roles).
  */
-export async function getAuthenticatedCaller(): Promise<AuthenticatedCaller | null> {
+const resolveAuthenticatedCaller = serverCache(async (): Promise<AuthenticatedCaller | null> => {
   try {
     const cookieStore = await cookies();
     const rawCookie = cookieStore.get("sb-access-token")?.value;
@@ -62,6 +68,10 @@ export async function getAuthenticatedCaller(): Promise<AuthenticatedCaller | nu
   } catch {
     return null;
   }
+});
+
+export async function getAuthenticatedCaller(): Promise<AuthenticatedCaller | null> {
+  return resolveAuthenticatedCaller();
 }
 
 /**
