@@ -214,6 +214,7 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
         />
         {/* Drawer Container */}
         <div
+          data-testid="mobile-drawer"
           className={`relative flex-1 max-w-xs w-full bg-sidebar-bg h-full shadow-2xl z-overlay transition-transform duration-200 ease-in-out ${
             isMobileOpen ? "translate-x-0" : "-translate-x-full"
           }`}

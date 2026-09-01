@@ -108,12 +108,20 @@ describe("loginAction", () => {
 });
 
 describe("logoutAction", () => {
+  const origMock = process.env.NEXT_PUBLIC_MOCK_AUTH;
   beforeEach(() => {
+    delete process.env.NEXT_PUBLIC_MOCK_AUTH;
     mocks.createClient.mockReset();
     mocks.redirect.mockReset();
     mocks.redirect.mockImplementation(() => {
       throw new Error("NEXT_REDIRECT");
     });
+  });
+
+  afterEach(() => {
+    if (origMock !== undefined) {
+      process.env.NEXT_PUBLIC_MOCK_AUTH = origMock;
+    }
   });
 
   it("signs out and redirects to login", async () => {

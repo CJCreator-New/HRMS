@@ -38,23 +38,26 @@ export function NotificationsBell() {
     // Poll every 60s as a background fallback
     const interval = setInterval(load, 60000);
 
-    // Supabase real-time channel subscription
+    // Supabase real-time channel subscription (only when live backend is active)
     let channel: import("@supabase/supabase-js").RealtimeChannel | null = null;
-    try {
-      const { createClient } = require("@/lib/supabase/client");
-      const supabase = createClient();
-      channel = supabase
-        .channel("inbox_notifications_realtime")
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "inbox_notifications" },
-          () => {
-            load();
-          }
-        )
-        .subscribe();
-    } catch {
-      // In offline / mock / unit test mode, fallback cleanly to interval polling
+    const isMock = process.env.NEXT_PUBLIC_MOCK_AUTH === "true";
+    if (!isMock) {
+      try {
+        const { createClient } = require("@/lib/supabase/client");
+        const supabase = createClient();
+        channel = supabase
+          .channel("inbox_notifications_realtime")
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "inbox_notifications" },
+            () => {
+              load();
+            }
+          )
+          .subscribe();
+      } catch {
+        // In offline / mock / unit test mode, fallback cleanly to interval polling
+      }
     }
 
     return () => {

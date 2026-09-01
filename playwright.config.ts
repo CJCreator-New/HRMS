@@ -13,7 +13,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 2 : undefined,
   reporter: [
-    ["html", { outputFolder: "e2e-report" }],
+    ["html", { outputFolder: "e2e-report", open: "never" }],
     ["list"],
   ],
   globalSetup: require.resolve("./e2e/global-setup"),
@@ -71,8 +71,8 @@ export default defineConfig({
   webServer: isLiveBackend
     ? undefined // No web server when running against a live backend
     : {
-        command: "npx next start",
-        url: "http://localhost:3000",
+        command: "npm run dev",
+        url: "http://localhost:3000/login",
         reuseExistingServer: true,
         timeout: 120 * 1000,
       },

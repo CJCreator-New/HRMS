@@ -353,13 +353,24 @@ export async function logoutAction() {
 
   try {
     const cookieStore = await cookies();
+    cookieStore.set("sb-access-token", "", {
+      path: "/",
+      maxAge: 0,
+      expires: new Date(0),
+    });
     if (typeof cookieStore?.delete === "function") {
       cookieStore.delete("sb-access-token");
     }
   } catch {}
-  const supabase = await createClient();
-  await supabase.auth.signOut();
+  const isMockAuth = process.env.NEXT_PUBLIC_MOCK_AUTH === "true";
+  if (!isMockAuth) {
+    try {
+      const supabase = await createClient();
+      await supabase.auth.signOut();
+    } catch {}
+  }
   redirect("/login");
+  return { success: true };
 }
 
 export async function changePasswordAction(formData: FormData) {

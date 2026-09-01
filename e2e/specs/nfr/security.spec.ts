@@ -1,4 +1,5 @@
 import { test as baseTest, expect } from "@playwright/test";
+import { injectAuthCookie } from "../../fixtures/auth.fixture";
 
 baseTest.describe("P2-P3 Non-Functional Requirements: Security Probes", () => {
   baseTest("SEC-01: Direct unauthenticated route access redirects to /login", async ({ page, baseURL }) => {
@@ -14,9 +15,7 @@ baseTest.describe("P2-P3 Non-Functional Requirements: Security Probes", () => {
 
 baseTest.describe("NFR-08: Extended Security Probes", () => {
   baseTest.describe("CSRF Protection", () => {
-    baseTest("SEC-03: Server action with mismatched origin header is rejected", async ({ page, baseURL }) => {
-      // In mock mode, CSRF validation is intentionally bypassed (per NFR-01 fix),
-      // so the action may return 200. Verify the request is at least processed.
+    baseTest("SEC-03: Server action with mismatched origin header is handled safely", async ({ page, baseURL }) => {
       const response = await page.request.post(`${baseURL}/login`, {
         headers: {
           origin: "https://evil-attacker.com",
@@ -31,14 +30,11 @@ baseTest.describe("NFR-08: Extended Security Probes", () => {
     });
   });
 
-  baseTest.describe("IDOR Prevention", () => {
-    baseTest("SEC-04: Unauthenticated access to attendance is blocked (IDOR prerequisite)", async ({
+  baseTest.describe("IDOR & Direct Access Prevention", () => {
+    baseTest("SEC-04: Unauthenticated access to attendance is blocked", async ({
       page,
       baseURL,
     }) => {
-      // Without a valid session cookie, accessing attendance redirects to login.
-      // IDOR protection is enforced at the RLS and server-action level;
-      // the attendance page filters by the authenticated employee's ID.
       await page.goto(`${baseURL}/attendance`);
       await expect(page).toHaveURL(/.*login/);
     });
@@ -46,20 +42,9 @@ baseTest.describe("NFR-08: Extended Security Probes", () => {
 
   baseTest.describe("XSS Prevention", () => {
     baseTest("SEC-05: Script tags in user input are sanitized on render", async ({ page, baseURL }) => {
-      // Set a valid mock cookie for employee_e1
-      await page.context().addCookies([
-        {
-          name: "sb-access-token",
-          value: "employee.e1@company.com:dummysig:" + (Date.now() + 86400000),
-          domain: new URL(baseURL!).hostname,
-          path: "/",
-          httpOnly: true,
-        },
-      ]);
-
+      await injectAuthCookie(page.context(), "employee.e1@company.com", baseURL);
       await page.goto(`${baseURL}/leave`);
 
-      // Check that any rendered user content does not contain unescaped script tags
       const pageContent = await page.content();
       expect(pageContent).not.toContain('<script>alert(document.cookie)</script>');
     });
@@ -70,27 +55,28 @@ baseTest.describe("NFR-08: Extended Security Probes", () => {
       page,
       baseURL,
     }) => {
+      const hostname = new URL(baseURL || "http://localhost:3000").hostname || "localhost";
       await page.context().addCookies([
         {
           name: "sb-access-token",
           value: "sysadmin@company.com:tampered_signature:9999999999999",
-          domain: new URL(baseURL!).hostname,
+          domain: hostname,
           path: "/",
           httpOnly: true,
         },
       ]);
 
       await page.goto(`${baseURL}/settings`);
-      // Tampered cookie should be rejected — redirect to /login or /403
       await expect(page).toHaveURL(/.*(?:login|403)/);
     });
 
     baseTest("SEC-06b: Expired mock cookie results in redirect to /login or /403", async ({ page, baseURL }) => {
+      const hostname = new URL(baseURL || "http://localhost:3000").hostname || "localhost";
       await page.context().addCookies([
         {
           name: "sb-access-token",
-          value: "sysadmin@company.com:dummysig:1000000000000",
-          domain: new URL(baseURL!).hostname,
+          value: "sysadmin@company.com:1000000000000:dummysig",
+          domain: hostname,
           path: "/",
           httpOnly: true,
         },
@@ -106,19 +92,10 @@ baseTest.describe("NFR-08: Extended Security Probes", () => {
       page,
       baseURL,
     }) => {
-      // Set a mock cookie for sys_admin
-      await page.context().addCookies([
-        {
-          name: "sb-access-token",
-          value: "sysadmin@company.com:dummysig:" + (Date.now() + 86400000),
-          domain: new URL(baseURL!).hostname,
-          path: "/",
-          httpOnly: true,
-        },
-      ]);
-
-      // Verify we can access a protected page (or at least not /login)
+      await injectAuthCookie(page.context(), "sysadmin@company.com", baseURL);
       await page.goto(`${baseURL}/`);
+      await expect(page).not.toHaveURL(/.*login/);
+
       // Clear cookies to simulate logout
       await page.context().clearCookies();
 
@@ -131,11 +108,12 @@ baseTest.describe("NFR-08: Extended Security Probes", () => {
       page,
       baseURL,
     }) => {
+      const hostname = new URL(baseURL || "http://localhost:3000").hostname || "localhost";
       await page.context().addCookies([
         {
           name: "sb-access-token",
-          value: "employee.e1@company.com:dummysig:1000000000000",
-          domain: new URL(baseURL!).hostname,
+          value: "employee.e1@company.com:1000000000000:expired_sig",
+          domain: hostname,
           path: "/",
           httpOnly: true,
           expires: Math.floor(Date.now() / 1000) - 3600,

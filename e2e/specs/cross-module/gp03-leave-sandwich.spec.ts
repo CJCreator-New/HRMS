@@ -1,19 +1,23 @@
 import { test, expect } from "../../fixtures/auth.fixture";
-import { isSupabaseReachable } from "../../fixtures/db.fixture";
+import { LeavePage } from "../../pages/LeavePage";
+import { ApprovalsPage } from "../../pages/ApprovalsPage";
 
-test.describe("Cross-Module Golden Path GP-03: Leave Sandwich + LOP (P1)", () => {
-  test.beforeAll(async () => {
-    test.skip(
-      !(await isSupabaseReachable()),
-      "Requires live Supabase backend + seeded leave allocations (ADR 0004); skipped in offline mock mode."
-    );
-  });
-  test("Sandwich rule deducts weekend days and auto-converts to LOP when balance insufficient", async ({ employeePage: page, baseURL }) => {
-    // Go to Leave Engine page
-    await page.goto(`${baseURL}/leave`);
-    await expect(page.locator("body")).toContainText(/Leave Engine|Apply for Leave|Leave/i);
+test.describe("Cross-Module Golden Path GP-03: Leave Sandwich Rule (P1)", () => {
+  test("Sandwich rule: Friday-to-Monday leave application and Manager Approvals visibility", async ({
+    employeePage,
+    managerPage,
+    baseURL,
+  }) => {
+    // 1. Employee applies for leave spanning weekend
+    const leave = new LeavePage(employeePage, baseURL);
+    await leave.goto();
+    await leave.assertLoaded();
+    await leave.applyLeave("2026-09-04", "2026-09-07", "GP-03 Weekend sandwich leave");
 
-    // Verify Sandwich rule policy section is visible
-    await expect(page.locator("body")).toContainText(/Sandwich Rule Policy|Apply for Leave/i);
+    // 2. Manager verifies in Approvals inbox
+    const approvals = new ApprovalsPage(managerPage, baseURL);
+    await approvals.goto();
+    await approvals.assertLoaded();
+    await approvals.filterByModule("Leave Requests");
   });
 });

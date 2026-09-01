@@ -1,21 +1,31 @@
 import { test, expect } from "../../fixtures/auth.fixture";
-import { isSupabaseReachable } from "../../fixtures/db.fixture";
+import { AttendancePage } from "../../pages/AttendancePage";
+import { ApprovalsPage } from "../../pages/ApprovalsPage";
+import { PayrollPage } from "../../pages/PayrollPage";
 
-test.describe("Golden Path GP-02: Attendance Anomaly Blocking Payroll Lock E2E Spec", () => {
-  test.beforeAll(async () => {
-    test.skip(
-      !(await isSupabaseReachable()),
-      "Action-level trace requires live Supabase backend + seeded data (ADR 0004); skipped in offline mock mode."
-    );
-  });
-  test("should enforce attendance anomaly lock check during payroll run", async ({ payrollAdminPage: page, baseURL }) => {
-    // 1. Payroll Admin visits attendance page (shows read-only banner)
-    await page.goto(`${baseURL}/attendance`);
-    await expect(page.locator("body")).toContainText(/Attendance|Read-Only/i);
+test.describe("Golden Path GP-02: Attendance Anomaly Blocking Payroll Lock (P1)", () => {
+  test("Attendance anomaly lifecycle: Regularization request → Manager Approvals queue → Payroll Validation", async ({
+    employeePage,
+    managerPage,
+    payrollAdminPage,
+    baseURL,
+  }) => {
+    // 1. Employee submits attendance correction for missing punch
+    const attendance = new AttendancePage(employeePage, baseURL);
+    await attendance.goto();
+    await attendance.assertLoaded();
+    await attendance.submitCorrection("09:15", "18:30", "Gate biometric anomaly correction");
 
-    // 2. Payroll Admin visits payroll page and verifies lock check controls
-    await page.goto(`${baseURL}/payroll`);
-    await expect(page.locator('[data-testid="payroll-header"]')).toBeVisible();
-    await expect(page.locator("body")).toContainText(/Payroll Core Engine|Strict Payroll Lock|Validation/i);
+    // 2. Manager reviews regularization in Approvals inbox
+    const approvals = new ApprovalsPage(managerPage, baseURL);
+    await approvals.goto();
+    await approvals.assertLoaded();
+    await approvals.filterByModule("Attendance Corrections");
+
+    // 3. Payroll Admin verifies payroll lock & validation controls
+    const payroll = new PayrollPage(payrollAdminPage, baseURL);
+    await payroll.goto();
+    await payroll.assertLoaded();
+    await expect(payroll.stepper).toBeVisible();
   });
 });
