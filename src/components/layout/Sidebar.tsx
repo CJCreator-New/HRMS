@@ -109,7 +109,7 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
       </div>
 
       {/* Grouped Navigation List */}
-      <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-6">
+      <nav className="flex-1 overflow-y-auto px-3 py-5">
         {categories.map((cat) => {
           const catRoutes = ROUTE_CONFIG.filter(
             (r) => r.category === cat && !r.public
@@ -120,11 +120,11 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
           if (catRoutes.length === 0) return null;
 
           return (
-            <div key={cat} className="space-y-1">
+            <div key={cat} className="flex flex-col gap-1">
               <h2 className="px-3 text-[10px] font-bold text-sidebar-muted uppercase tracking-wider">
                 {cat}
               </h2>
-              <div className="space-y-0.5 pt-1">
+              <div className="flex flex-col gap-0.5 pt-1">
                 {catRoutes
                   .filter((r) => !r.parent)
                   .map((r) => {
@@ -132,7 +132,7 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
                     const isActive = pathname === r.path || pathname.startsWith(`${r.path}/`);
                     const testId = `nav-${r.path === "/" ? "home" : r.path.replace(/^\//, "").replace(/\//g, "-")}`;
                     return (
-                      <div key={r.path} className="space-y-0.5">
+                      <div key={r.path} className="flex flex-col gap-0.5">
                         <Link
                           href={r.path}
                           onClick={() => onMobileClose?.()}
@@ -157,7 +157,7 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
                         </Link>
 
                         {children.length > 0 && (
-                          <div className="ml-3 pl-2.5 border-l border-sidebar-border space-y-0.5 mt-0.5">
+                          <div className="ml-3 mt-0.5 flex flex-col gap-0.5 border-l border-sidebar-border pl-2.5">
                             {children.map((child) => {
                               const childActive = pathname === child.path;
                               const childTestId = `nav-${child.path.replace(/^\//, "").replace(/\//g, "-")}`;

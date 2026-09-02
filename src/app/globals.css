@@ -47,6 +47,8 @@
   /* Line — borders & dividers */
   --line: #e2e8f0;
   --line-strong: #cbd5e1;
+  --focus-ring: #93c5fd;
+  --content-max: 1440px;
 
   /* Shadows — layered elevation */
   --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06);
@@ -86,6 +88,7 @@ body {
   background-color: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }

@@ -20,7 +20,7 @@ interface PageHeaderProps {
 
 export function PageHeader({ icon, title, description, actions, testId }: PageHeaderProps) {
   return (
-    <div className="bg-surface p-6 rounded-xl border border-line shadow-card flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="rounded-2xl border border-line bg-surface p-6 shadow-card flex flex-col sm:flex-row sm:items-center justify-between gap-5">
       <div>
         <h2
           data-testid={testId}
