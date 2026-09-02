@@ -50,14 +50,33 @@ create table ff_clearances (
   unique (ff_settlement_id, department_name)
 );
 
--- 4. Stale-Input Invalidation Function (§5.4)
+-- Foreign key linking leave_ledger transactions to F&F settlement (P3-8)
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'fk_leave_ledger_ff_settlement'
+  ) then
+    alter table leave_ledger
+      add constraint fk_leave_ledger_ff_settlement
+      foreign key (ff_settlement_id) references ff_settlement_records(id) on delete set null;
+  end if;
+end;
+$$;
+
+-- 4. Stale-Input Invalidation Function (§5.4, P3-8)
 create or replace function invalidate_stale_ff_settlement() returns trigger
 language plpgsql as $$
 begin
   -- If leave encashment or LOP records change after draft F&F creation, mark F&F stale
-  update ff_settlement_records
-  set is_stale = true, updated_at = now()
-  where employee_id = new.employee_id and status = 'draft';
+  if TG_TABLE_NAME = 'leave_ledger' and new.ff_settlement_id is not null then
+    update ff_settlement_records
+    set is_stale = true, updated_at = now()
+    where id = new.ff_settlement_id and status = 'draft';
+  else
+    update ff_settlement_records
+    set is_stale = true, updated_at = now()
+    where employee_id = new.employee_id and status = 'draft';
+  end if;
   return new;
 end;
 $$;

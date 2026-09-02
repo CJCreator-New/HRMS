@@ -73,3 +73,45 @@ alter table audit_logs enable row level security;
 
 create policy audit_logs_read on audit_logs for select
   using (has_permission('audit.view'));
+
+-- 5. User Active Sessions Tracking (§8.1, P2-8)
+create table if not exists user_sessions (
+  id              uuid primary key default gen_random_uuid(),
+  employee_id     uuid not null references employees(id) on delete cascade,
+  session_token   text not null,
+  ip_address      text,
+  user_agent      text,
+  device_type     text default 'desktop',
+  is_active       boolean not null default true,
+  last_active_at  timestamptz not null default now(),
+  created_at      timestamptz not null default now()
+);
+
+create index if not exists idx_user_sessions_emp on user_sessions(employee_id, is_active);
+
+alter table user_sessions enable row level security;
+
+create policy sessions_read on user_sessions for select
+  using (employee_id = auth_employee_id() or has_permission('settings.manage'));
+
+create policy sessions_write on user_sessions for all
+  using (employee_id = auth_employee_id() or has_permission('settings.manage'))
+  with check (employee_id = auth_employee_id() or has_permission('settings.manage'));
+
+-- 6. Audit Log Archival Stored Procedure (P3-6)
+create or replace function archive_old_audit_logs(p_retention_days integer default 365)
+returns table (archived_count bigint) language plpgsql security definer as $$
+declare
+  v_count bigint;
+begin
+  with deleted as (
+    delete from audit_logs
+    where created_at < (now() - (p_retention_days || ' days')::interval)
+    returning 1
+  )
+  select count(*) into v_count from deleted;
+
+  return query select v_count;
+end;
+$$;
+

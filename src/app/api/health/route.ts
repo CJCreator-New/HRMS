@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { pingRedis } from "@/lib/auth/rate-limit";
 
 export async function GET() {
   const timestamp = new Date().toISOString();
@@ -78,6 +79,17 @@ export async function GET() {
     latencyMs = Date.now() - start;
   }
 
+  // 3. Redis connectivity check (P0-1 & P3-5)
+  const redisHealth = await pingRedis().catch((err: unknown) => ({
+    ok: false,
+    configured: false,
+    error: err instanceof Error ? err.message : String(err),
+  }));
+
+  // 4. Process metrics (P3-5)
+  const memoryUsage = process.memoryUsage();
+  const uptimeSeconds = Math.floor(process.uptime());
+
   const isHealthy = reachable && (dbStatus === "ok" || dbStatus === "mock_mode_active");
 
   return NextResponse.json(
@@ -92,7 +104,27 @@ export async function GET() {
         configured: isConfigured,
         supabaseReachable: reachable,
         database: dbStatus,
+        redisReachable: redisHealth.ok,
         latencyMs,
+      },
+      components: {
+        supabase: {
+          status: reachable ? "up" : "down",
+          database: dbStatus,
+          latencyMs,
+        },
+        redis: {
+          status: !redisHealth.configured ? "not_configured" : (redisHealth.ok ? "up" : "down"),
+          configured: redisHealth.configured,
+          latencyMs: ("latencyMs" in redisHealth ? redisHealth.latencyMs : null) ?? null,
+          error: redisHealth.error ?? null,
+        },
+        memory: {
+          rssMb: Math.round((memoryUsage.rss / 1024 / 1024) * 100) / 100,
+          heapUsedMb: Math.round((memoryUsage.heapUsed / 1024 / 1024) * 100) / 100,
+          heapTotalMb: Math.round((memoryUsage.heapTotal / 1024 / 1024) * 100) / 100,
+        },
+        uptime: uptimeSeconds,
       },
       error: isHealthy ? null : (errorMessage || "Supabase backend endpoint is currently unreachable"),
     },

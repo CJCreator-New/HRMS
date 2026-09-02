@@ -74,6 +74,7 @@ export interface WriteAuditLogParams {
   oldValues?: unknown;
   newValues?: unknown;
   metadata?: Record<string, unknown>;
+  details?: Record<string, unknown>;
 }
 
 export async function writeAuditLogAction(params: WriteAuditLogParams) {
@@ -111,7 +112,7 @@ export async function writeAuditLogAction(params: WriteAuditLogParams) {
       entity_id: params.entityId || null,
       old_values: params.oldValues ? JSON.stringify(params.oldValues) : null,
       new_values: params.newValues ? JSON.stringify(params.newValues) : null,
-      metadata: params.metadata || {},
+      metadata: params.metadata || params.details || {},
     });
 
     if (error) return { error: error.message };
@@ -121,3 +122,26 @@ export async function writeAuditLogAction(params: WriteAuditLogParams) {
     return { error: message };
   }
 }
+
+export async function archiveAuditLogsAction(retentionDays: number = 365): Promise<{
+  success: boolean;
+  archivedCount?: number;
+  error?: string;
+}> {
+  const csrfError = await validateRequestOrigin();
+  if (csrfError) return { success: false, error: csrfError.error };
+
+  const permError = await assertPermission("settings.manage");
+  if (permError) return { success: false, error: permError.error };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("archive_old_audit_logs", {
+    p_retention_days: retentionDays,
+  });
+
+  if (error) return { success: false, error: error.message };
+
+  const count = Array.isArray(data) && data[0] ? Number(data[0].archived_count) : 0;
+  return { success: true, archivedCount: count };
+}
+

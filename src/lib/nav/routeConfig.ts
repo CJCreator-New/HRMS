@@ -144,7 +144,7 @@ export const ROUTE_CONFIG: RouteGate[] = [
     path: "/encashment",
     name: "Leave Encashment",
     category: "PAY",
-    requiredPermissions: ["leave.encash.apply.self", "leave.encash.approve", "leave.view.self", "leave.view.team", "leave.view.all"],
+    requiredPermissions: ["leave.encash.apply.self", "leave.encash.approve"],
     description: "Leave encashment requests and the carry-forward log.",
   },
   {

@@ -20,7 +20,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { useToast } from "@/components/shared/Toast";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   getAuthDiagnosticContext,
   getCapturedAuthHeaders,
@@ -61,6 +61,9 @@ export default function LoginPage() {
 
   const { toast } = useToast();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const confirmed = searchParams.get("confirmed") === "true";
+  const resetSuccessParam = searchParams.get("reset") === "success";
 
   // Client-side real-time validation checks
   const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
@@ -357,6 +360,26 @@ export default function LoginPage() {
               : "Sign in with your organizational credentials"}
           </p>
         </div>
+
+        {confirmed && (
+          <div
+            role="status"
+            className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2"
+          >
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" aria-hidden="true" />
+            <span>Your email has been confirmed successfully! Please sign in with your credentials.</span>
+          </div>
+        )}
+
+        {resetSuccessParam && (
+          <div
+            role="status"
+            className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2"
+          >
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" aria-hidden="true" />
+            <span>Your password has been reset successfully! Please sign in with your new password.</span>
+          </div>
+        )}
 
         {/* Forgot Password Flow */}
         {showForgotPassword ? (

@@ -1,0 +1,17 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allowed placeholder secrets and mock credentials in test files and documentation"
+paths = [
+  '''^\.env\.example$''',
+  '''src/lib/services/__tests__/.*''',
+  '''e2e/.*''',
+  '''schema/mock_seed\.sql''',
+  '''scripts/seed-mock-data\.mjs'''
+]
+regexes = [
+  '''placeholder-[a-zA-Z0-9_\-]+''',
+  '''your-[a-zA-Z0-9_\-]+-key''',
+  '''dummysig'''
+]

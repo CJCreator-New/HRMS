@@ -228,7 +228,7 @@ describe("Payroll Workflow — Execute Bulk Run", () => {
     expect(result.success).toBe(true);
     // Employee is excluded because resolveMonthlyCtc returns null
     expect(result.excludedEmployees).toHaveLength(1);
-    expect(result.excludedEmployees[0].reason).toContain("Missing or invalid salary structure");
+    expect(result.excludedEmployees![0].reason).toContain("Missing or invalid salary structure");
   });
 
   it("handles zero eligible employees gracefully", async () => {
@@ -341,7 +341,7 @@ describe("Payroll Workflow — Finalize Period", () => {
     mocks.createClient.mockReturnValue(fakeWithRpc);
 
     const result = await finalizePayrollPeriodAction("pp-2026-08");
-    expect(result.success).toBe(true);
+    expect((result as any).success).toBe(true);
 
     // Period status updated
     const periodUpdate = updates.find((u) => u.table === "payroll_periods");
@@ -374,7 +374,7 @@ describe("Payroll Workflow — Finalize Period", () => {
     mocks.createClient.mockReturnValue(fakeWithRpc);
 
     const result = await finalizePayrollPeriodAction("pp-2026-08");
-    expect(result.error).toContain("Cannot finalize");
+    expect((result as any).error).toContain("Cannot finalize");
   });
 
   it("blocks users without payroll.finalize permission", async () => {
@@ -383,7 +383,7 @@ describe("Payroll Workflow — Finalize Period", () => {
     });
 
     const result = await finalizePayrollPeriodAction("pp-2026-08");
-    expect(result.error).toContain("Insufficient permissions");
+    expect((result as any).error).toContain("Insufficient permissions");
   });
 });
 
@@ -406,7 +406,7 @@ describe("Payroll Workflow — Publish Period", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const result = await publishPayrollPeriodAction("pp-2026-08");
-    expect(result.success).toBe(true);
+    expect((result as any).success).toBe(true);
 
     const periodUpdate = updates.find((u) => u.table === "payroll_periods");
     expect(periodUpdate!.payload).toMatchObject({ status: "published" });
@@ -425,7 +425,7 @@ describe("Payroll Workflow — Publish Period", () => {
     });
 
     const result = await publishPayrollPeriodAction("pp-2026-08");
-    expect(result.error).toContain("Insufficient permissions");
+    expect((result as any).error).toContain("Insufficient permissions");
   });
 });
 
@@ -450,8 +450,8 @@ describe("Payroll Workflow — Reopen Period", () => {
     mocks.createClient.mockReturnValue(fakeWithRpc);
 
     const result = await reopenPayrollPeriodAction("pp-2026-08");
-    expect(result.success).toBe(true);
-    expect(result.newRevisionId).toBe("rev-002");
+    expect((result as any).success).toBe(true);
+    expect((result as any).newRevisionId).toBe("rev-002");
 
     // Audit log written
     expect(mocks.writeAuditLogAction).toHaveBeenCalledWith(
@@ -467,7 +467,7 @@ describe("Payroll Workflow — Reopen Period", () => {
     });
 
     const result = await reopenPayrollPeriodAction("pp-2026-08");
-    expect(result.error).toContain("Insufficient permissions");
+    expect((result as any).error).toContain("Insufficient permissions");
   });
 });
 
@@ -490,7 +490,7 @@ describe("Payroll Workflow — Validate Lock", () => {
     mocks.createClient.mockReturnValue(fakeWithRpc);
 
     const result = await validatePayrollLockAction("pp-2026-08");
-    expect(result.success).toBe(true);
+    expect((result as any).success).toBe(true);
   });
 
   it("returns error when lock validation fails", async () => {
@@ -507,6 +507,6 @@ describe("Payroll Workflow — Validate Lock", () => {
     mocks.createClient.mockReturnValue(fakeWithRpc);
 
     const result = await validatePayrollLockAction("pp-2026-08");
-    expect(result.error).toContain("Payroll Lock Blocked");
+    expect((result as any).error).toContain("Payroll Lock Blocked");
   });
 });

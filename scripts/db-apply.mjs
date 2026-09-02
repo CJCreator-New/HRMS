@@ -11,6 +11,7 @@ const COMBINED_FILE = path.join(SCHEMA_DIR, "combined_init.sql");
 
 const MODULAR_FILES = [
   "00_setup.sql",
+  "00_auth_helpers.sql",
   "01_rbac.sql",
   "02_org.sql",
   "03_settings.sql",

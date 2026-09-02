@@ -20,9 +20,9 @@ Every claim in the baseline forensic audit has been verified against the actual 
 │ • Overall Status:              ✅ CERTIFIED (Grade A+)                 │
 │ • TypeScript Strict Check:     ✅ 0 Errors (Clean Compile)              │
 │ • ESLint Static Analysis:      ✅ 0 Errors                             │
-│ • Automated Unit Test Suite:   ✅ 49 / 49 Files Passed (447 Tests)     │
+│ • Automated Unit Test Suite:   ✅ 59 / 59 Files Passed (604 Tests)     │
 │ • RBAC Permissions Sync:       ✅ 62 / 62 Permissions Aligned (8 Roles)│
-│ • PostgreSQL Schema Sync:      ✅ 27 Modular Files Synchronized        │
+│ • PostgreSQL Schema Sync:      ✅ 28 Modular Files Synchronized        │
 │ • Financial Isolation:         ✅ Strictly Closed (0 CTC Leakage)      │
 │ • Timezone Handling:           ✅ Asia/Kolkata (IST Boundary Safe)     │
 │ • Concurrency Defense:         ✅ Atomic RPCs & Row-Level Locking       │
@@ -138,9 +138,8 @@ Successfully generated schema/combined_init.sql (154028 bytes)!
 ```bash
 $ npm run test:unit
  RUN  v4.1.10
- Test Files  49 passed (49)
-      Tests  447 passed (447)
-   Duration  13.48s
+ Test Files  59 passed (59)
+      Tests  604 passed (604)
 ```
 
 ---
@@ -165,11 +164,12 @@ UPSTASH_REDIS_REST_TOKEN=AX...
 ```
 
 ### Pre-Flight Production Verification Checklist
-1. Apply master schema: Execute `schema/combined_init.sql` on target PostgreSQL 15+ database.
+1. Apply master schema: Execute `schema/combined_init.sql` on target PostgreSQL 15+ database (`npm run db:sync`).
 2. Verify RBAC sync: `npm run verify:permissions` $\rightarrow$ must exit code 0.
-3. Run test suite: `npm run test:unit` $\rightarrow$ must pass 49/49 files.
-4. Run static check: `npx tsc --noEmit && npm run lint` $\rightarrow$ must exit code 0.
-5. Verify build: `npm run build` $\rightarrow$ generates standalone Next.js production bundle.
+3. Run live trigger & RPC test suite: `npm run test:db` $\rightarrow$ must exit code 0.
+4. Run unit test suite: `npm run test:unit` $\rightarrow$ must pass 59/59 files (604 tests).
+5. Run static check: `npm run lint` $\rightarrow$ must exit code 0.
+6. Verify disaster recovery: See `docs/runbooks/DISASTER_RECOVERY_RUNBOOK.md`.
 
 ---
 

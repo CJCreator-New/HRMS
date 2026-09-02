@@ -17,30 +17,6 @@ interface JobLog {
   executed_at: string;
 }
 
-const INITIAL_JOBS: JobLog[] = [
-  {
-    id: "j1",
-    job_name: "job_accrue_monthly_earned_leave()",
-    status: "success",
-    records_processed: 48,
-    executed_at: "2026-08-01 00:05:00",
-  },
-  {
-    id: "j2",
-    job_name: "job_expire_comp_off_grants()",
-    status: "success",
-    records_processed: 3,
-    executed_at: "2026-08-01 00:10:00",
-  },
-  {
-    id: "j3",
-    job_name: "job_year_end_carry_forward()",
-    status: "success",
-    records_processed: 45,
-    executed_at: "2026-01-01 00:15:00",
-  },
-];
-
 import { getScheduledJobLogsAction, runScheduledJobAction } from "@/lib/actions/jobs";
 import { formatDateIndian } from "@/lib/utils/formatters";
 

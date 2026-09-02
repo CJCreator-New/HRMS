@@ -16,6 +16,19 @@ export interface AttendanceActionRecord {
   [key: string]: unknown;
 }
 
+async function getPunchMetadata(): Promise<{ ipAddress: string; userAgent?: string }> {
+  try {
+    const { headers } = await import("next/headers");
+    const h = await headers();
+    const forwarded = h.get("x-forwarded-for");
+    const ipAddress = forwarded ? forwarded.split(",")[0].trim() : (h.get("x-real-ip") || "127.0.0.1");
+    const userAgent = h.get("user-agent") || undefined;
+    return { ipAddress, userAgent };
+  } catch {
+    return { ipAddress: "127.0.0.1" };
+  }
+}
+
 export async function punchCheckInAction(employeeId?: string): Promise<{ success: boolean; error?: string; record?: AttendanceActionRecord }> {
   const csrfError = await validateRequestOrigin();
   if (csrfError) return { success: false, error: csrfError.error };
@@ -82,10 +95,13 @@ export async function punchCheckInAction(employeeId?: string): Promise<{ success
 
   if (error) return { success: false, error: error.message };
 
+  const { ipAddress, userAgent } = await getPunchMetadata();
   await supabase.from("attendance_punches").insert({
     attendance_record_id: record.id,
     punch_type: "check_in",
     punch_timestamp: nowIso,
+    ip_address: ipAddress,
+    device_id: userAgent,
   });
 
   try {
@@ -133,10 +149,13 @@ export async function punchCheckOutAction(attendanceRecordId: string): Promise<{
 
   if (error) return { success: false, error: error.message };
 
+  const { ipAddress: outIp, userAgent: outAgent } = await getPunchMetadata();
   await supabase.from("attendance_punches").insert({
     attendance_record_id: attendanceRecordId,
     punch_type: "check_out",
     punch_timestamp: nowIso,
+    ip_address: outIp,
+    device_id: outAgent,
   });
 
   try {

@@ -11,6 +11,8 @@ import { E2E_MOCK_ALLOWED_ROUTES } from "@/lib/services/mock-rbac";
 
 import { sanitizeForLog } from "@/lib/utils/sanitize-log";
 import { getTodayDateStringIST } from "@/lib/utils/date-utils";
+import { logger } from "@/lib/logger";
+import { assertAnyPermission } from "@/lib/auth/assertPermission";
 
 export interface LoginActionResult {
   success?: boolean;
@@ -25,18 +27,20 @@ export interface LoginActionResult {
 
 /** Determines whether mock authentication mode is active for the given email. */
 function resolveIsMockAuth(email: string): boolean {
-  const isKnownMockPersona =
-    (process.env.NODE_ENV !== "production" ||
-      process.env.NEXT_PUBLIC_MOCK_AUTH === "true") &&
-    (email in E2E_MOCK_ALLOWED_ROUTES || email.endsWith("@company.com"));
+  // In production, mock authentication is strictly forbidden
+  if (process.env.NODE_ENV === "production") {
+    return false;
+  }
 
-  return (
-    process.env.NEXT_PUBLIC_MOCK_AUTH === "true" ||
-    isKnownMockPersona ||
-    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL.includes("placeholder") ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL.includes("mock")
-  );
+  // Strictly require explicit NEXT_PUBLIC_MOCK_AUTH=true (P0-3)
+  if (process.env.NEXT_PUBLIC_MOCK_AUTH !== "true") {
+    return false;
+  }
+
+  const isKnownMockPersona =
+    email in E2E_MOCK_ALLOWED_ROUTES || email.endsWith("@company.com");
+
+  return isKnownMockPersona || Boolean(process.env.NEXT_PUBLIC_MOCK_AUTH === "true");
 }
 
 /** Sets a signed mock session cookie (or real access token) on the response. */
@@ -123,9 +127,9 @@ export async function loginAction(formData: FormData): Promise<LoginActionResult
     return { error: "Email and password are required." };
   }
 
-  // Hard-coded invalid credentials bypass (E2E negative test only)
-  if ((process.env.NODE_ENV === "test" || process.env.NEXT_PUBLIC_MOCK_AUTH === "true") && (email.includes("invalid") || password.includes("Wrong"))) {
-    return { error: "Invalid login credentials" };
+  // Hard-coded invalid credentials bypass (E2E mock mode only)
+  if (process.env.NEXT_PUBLIC_MOCK_AUTH === "true" && (email.includes("invalid") || password.includes("Wrong"))) {
+    return { error: "Invalid login credentials", errorCode: "invalid_credentials" };
   }
 
   const isMockAuth = resolveIsMockAuth(email);
@@ -133,6 +137,10 @@ export async function loginAction(formData: FormData): Promise<LoginActionResult
   const isProduction = process.env.NODE_ENV === "production";
 
   if (isMockAuth) {
+    logger.warn("auth.mock_mode", {
+      message: `MOCK AUTH ACTIVE for ${sanitizeForLog(email)} (NEXT_PUBLIC_MOCK_AUTH=true). Bypassing real credential verification.`,
+      metadata: { email: sanitizeForLog(email) },
+    });
     // Mock mode: skip Supabase auth + rate limiting (no credential verification
     // to protect — the email is signed with expiration for middleware RBAC).
     const signedValue = await signMockCookieValue(email);
@@ -153,6 +161,33 @@ export async function loginAction(formData: FormData): Promise<LoginActionResult
   // Production mode: verify credentials against Supabase
   try {
     const supabase = await createClient();
+
+    // Check account lockout status (P1-6)
+    let empRecord: { id: string; failed_login_attempts?: number; locked_until?: string | null } | null = null;
+    try {
+      const { data } = await supabase
+        .from("employees")
+        .select("id, failed_login_attempts, locked_until")
+        .eq("email", email.toLowerCase())
+        .maybeSingle();
+      empRecord = data;
+    } catch {
+      // If table query is unavailable, proceed
+    }
+
+    if (empRecord?.locked_until) {
+      const lockedUntilMs = new Date(empRecord.locked_until).getTime();
+      const now = Date.now();
+      if (lockedUntilMs > now) {
+        const remainingMinutes = Math.ceil((lockedUntilMs - now) / 60000);
+        return {
+          error: `Account is temporarily locked due to consecutive failed login attempts. Please try again in ${remainingMinutes} minute(s) or contact your administrator.`,
+          errorCode: "ACCOUNT_LOCKED",
+          status: 423,
+        };
+      }
+    }
+
     const rawSupabaseResponse = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -236,6 +271,33 @@ export async function loginAction(formData: FormData): Promise<LoginActionResult
         };
       }
 
+      // Record failed attempt for account lockout (P1-6)
+      if (empRecord?.id) {
+        const nextFailed = (empRecord.failed_login_attempts || 0) + 1;
+        const willLock = nextFailed >= 5;
+        const lockUntil = willLock ? new Date(Date.now() + 15 * 60 * 1000).toISOString() : null;
+
+        await supabase
+          .from("employees")
+          .update({
+            failed_login_attempts: nextFailed,
+            ...(willLock ? { locked_until: lockUntil } : {}),
+          })
+          .eq("id", empRecord.id);
+
+        if (willLock) {
+          logger.warn("auth.account_locked", {
+            message: `Account locked after 5 failed login attempts: ${sanitizeForLog(email)}`,
+            metadata: { email: sanitizeForLog(email), employeeId: empRecord.id },
+          });
+          return {
+            error: "Account has been locked for 15 minutes due to 5 consecutive failed login attempts. Please contact your administrator.",
+            errorCode: "ACCOUNT_LOCKED",
+            status: 423,
+          };
+        }
+      }
+
       return {
         error: error.message,
         errorCode: errCode,
@@ -249,50 +311,53 @@ export async function loginAction(formData: FormData): Promise<LoginActionResult
           details: authErr?.details,
         },
       };
-    }      // If session token exists, ensure access cookie is set with appropriate lifespan
-      if (data?.session?.access_token) {
-        const cookieMaxAge = rememberMe
-          ? 60 * 60 * 24 * 30
-          : data.session.expires_in || 60 * 60 * 24;
-        await setSessionCookie(data.session.access_token, cookieMaxAge, isProduction);
-      }
+    }
 
-      // Successful login — reset rate limit
-      await resetLoginRateLimit(email.toLowerCase());
+    // If session token exists, ensure access cookie is set with appropriate lifespan
+    if (data?.session?.access_token) {
+      const cookieMaxAge = rememberMe
+        ? 60 * 60 * 24 * 30
+        : data.session.expires_in || 60 * 60 * 24;
+      await setSessionCookie(data.session.access_token, cookieMaxAge, isProduction);
+    }
 
-      // Auto-provision employee record on first login if missing
-      if (data?.user) {
-        await autoProvisionEmployee(supabase, data.user.id, email);
-      }
+    // Successful login — reset rate limit & lockout
+    await resetLoginRateLimit(email.toLowerCase());
+    if (empRecord?.id && ((empRecord.failed_login_attempts || 0) > 0 || empRecord.locked_until)) {
+      await supabase
+        .from("employees")
+        .update({ failed_login_attempts: 0, locked_until: null })
+        .eq("id", empRecord.id);
+    }
 
-      return { success: true };
+    // Auto-provision employee record on first login if missing
+    if (data?.user) {
+      await autoProvisionEmployee(supabase, data.user.id, email);
+    }
+
+    return { success: true };
   } catch (err: unknown) {
     const errorObj = err instanceof Error ? err : null;
-    console.error("[Supabase Auth Exception / Network / CORS Rejection]:", {
-      timestamp: new Date().toISOString(),
-      name: errorObj?.name,
+    logger.error("auth.exception", {
       message: errorObj?.message || String(err),
-      stack: errorObj?.stack,
-      rawErrorObject: err,
+      metadata: { rawError: String(err) },
     });
 
-    // In production, never fall back to mock auth on connection failure
-    if (process.env.NODE_ENV === "production") {
+    // In production or when mock mode is not explicitly enabled, fail closed (P0-3)
+    if (process.env.NODE_ENV === "production" || process.env.NEXT_PUBLIC_MOCK_AUTH !== "true") {
       return {
-        error: "Authentication service is temporarily unavailable. Please try again later.",
+        error: "Authentication service is temporarily unavailable or Supabase is unreachable. Please verify configuration.",
         errorCode: "AUTH_SERVICE_UNAVAILABLE",
         status: 503,
       };
     }
 
-    // In development / test, fallback to signed session token
+    // In development / test, fallback to signed session token ONLY when NEXT_PUBLIC_MOCK_AUTH=true
     const signedValue = await signMockCookieValue(email);
     await setSessionCookie(signedValue, sessionMaxAge, false);
-    console.warn(
-      `[Auth] Supabase unreachable — falling back to mock auth. ` +
-      `Fix your .env.local (NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY) for production. ` +
-      `Error: ${errorObj?.message || String(err)}`
-    );
+    logger.warn("auth.mock_fallback", {
+      message: `Supabase unreachable — falling back to mock auth (NEXT_PUBLIC_MOCK_AUTH=true): ${sanitizeForLog(email)}`,
+    });
     return {
       success: true,
       diagnostic: {
@@ -301,6 +366,34 @@ export async function loginAction(formData: FormData): Promise<LoginActionResult
       },
     };
   }
+}
+
+/**
+ * Admin action to manually unlock an employee account (P1-6).
+ */
+export async function unlockEmployeeAccountAction(
+  employeeId: string
+): Promise<{ success: boolean; error?: string }> {
+  const csrfError = await validateRequestOrigin();
+  if (csrfError) return { success: false, error: csrfError.error };
+
+  const permError = await assertAnyPermission(["employee.edit", "settings.manage"]);
+  if (permError) return { success: false, error: permError.error };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("employees")
+    .update({ failed_login_attempts: 0, locked_until: null })
+    .eq("id", employeeId);
+
+  if (error) return { success: false, error: error.message };
+
+  logger.info("security.account_unlocked", {
+    actorId: employeeId,
+    message: `Account manually unlocked by admin for employee ${employeeId}`,
+  });
+
+  return { success: true };
 }
 
 export async function requestPasswordResetAction(emailInput: string) {

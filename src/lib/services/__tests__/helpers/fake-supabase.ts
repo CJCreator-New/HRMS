@@ -168,7 +168,10 @@ class FakeQueryBuilder {
 }
 
 export interface FakeSupabase {
-  auth: { getUser: ReturnType<typeof vi.fn> };
+  auth: {
+    getUser: ReturnType<typeof vi.fn>;
+    signInWithPassword: ReturnType<typeof vi.fn>;
+  };
   from: ReturnType<typeof vi.fn>;
   rpc: ReturnType<typeof vi.fn>;
 }
@@ -180,6 +183,12 @@ export function createFakeSupabase(
   return {
     auth: {
       getUser: vi.fn(async () => ({ data: { user: opts.user ?? null }, error: null })),
+      signInWithPassword: vi.fn(async (creds: unknown) => {
+        if (opts.auth?.signInWithPassword) {
+          return opts.auth.signInWithPassword(creds);
+        }
+        return { data: { session: { access_token: "fake-tok" }, user: { id: "fake-user" } }, error: null };
+      }),
     },
     from: vi.fn((table: string) => new FakeQueryBuilder(buildQueryState(table), respond)),
     rpc: vi.fn((fnName: string, args?: unknown) => {

@@ -15,9 +15,14 @@
 --           job_expire_comp_off_grants() functions========
 
 -- 1. Job Execution Audit Log
-create type job_status as enum ('running', 'success', 'failed');
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'job_status') then
+    create type job_status as enum ('running', 'success', 'failed');
+  end if;
+end $$;
 
-create table scheduled_job_logs (
+create table if not exists scheduled_job_logs (
   id                       uuid primary key default gen_random_uuid(),
   job_name                 text not null,
   status                   job_status not null default 'running',
@@ -96,6 +101,114 @@ exception when others then
 end;
 $$;
 
+-- 4. Annual Year-End Leave Carry-Forward Job Function (§4.3, §4.6)
+create or replace function job_year_end_carry_forward(p_year integer default extract(year from current_date)::integer - 1)
+returns void language plpgsql as $$
+declare
+  v_job_id uuid;
+  v_count integer := 0;
+  r record;
+  v_remaining numeric(5,2);
+  v_carried numeric(5,2);
+  v_lapsed numeric(5,2);
+  v_cap numeric(5,2) := 30.00;
+begin
+  insert into scheduled_job_logs (job_name) values ('year_end_carry_forward') returning id into v_job_id;
+
+  for r in
+    select la.employee_id, la.leave_type_id, la.allocated_days, la.carry_forward_days, la.used_days, lt.code
+    from leave_allocations la
+    join leave_types lt on lt.id = la.leave_type_id
+    join employees e on e.id = la.employee_id
+    where la.year = p_year
+      and e.status = 'active'
+      and lt.code in ('EL', 'PL')
+  loop
+    v_remaining := greatest(0.00, (r.allocated_days + r.carry_forward_days - r.used_days));
+    v_carried := least(v_remaining, v_cap);
+    v_lapsed := v_remaining - v_carried;
+
+    if v_carried > 0 then
+      insert into leave_allocations (employee_id, leave_type_id, year, allocated_days, carry_forward_days)
+      values (r.employee_id, r.leave_type_id, p_year + 1, 0.00, v_carried)
+      on conflict (employee_id, leave_type_id, year) do update set
+        carry_forward_days = v_carried,
+        updated_at = now();
+
+      insert into leave_ledger (employee_id, leave_type_id, transaction_type, days, balance_after, remarks)
+      values (r.employee_id, r.leave_type_id, 'carry_forward', v_carried, v_carried, 'Annual year-end carry forward from year ' || p_year);
+
+      v_count := v_count + 1;
+    end if;
+
+    if v_lapsed > 0 then
+      insert into leave_ledger (employee_id, leave_type_id, transaction_type, days, balance_after, remarks)
+      values (r.employee_id, r.leave_type_id, 'manual_adjustment', -v_lapsed, v_carried, 'Lapsed leave days exceeding annual carry forward cap for year ' || p_year);
+    end if;
+  end loop;
+
+  update scheduled_job_logs
+  set status = 'success', records_processed_count = v_count, completed_at = now()
+  where id = v_job_id;
+exception when others then
+  update scheduled_job_logs
+  set status = 'failed', error_details = SQLERRM, completed_at = now()
+  where id = v_job_id;
+end;
+$$;
+
+-- 5. Optional Holiday Deadline Auto-Allocation Job Function (§3.2)
+create or replace function job_allocate_default_optional_holidays()
+returns void language plpgsql as $$
+declare
+  v_job_id uuid;
+  v_count integer := 0;
+  v_default_tpl_id uuid;
+  r_emp record;
+  r_hol record;
+begin
+  insert into scheduled_job_logs (job_name) values ('optional_holiday_auto_allocation') returning id into v_job_id;
+
+  select id into v_default_tpl_id from work_calendar_templates where is_default = true limit 1;
+
+  if v_default_tpl_id is null then
+    update scheduled_job_logs set status = 'failed', error_details = 'Default work calendar template missing' where id = v_job_id;
+    return;
+  end if;
+
+  for r_emp in
+    select e.id
+    from employees e
+    where e.status = 'active'
+      and not exists (
+        select 1 from employee_optional_holiday_selections s where s.employee_id = e.id
+      )
+  loop
+    for r_hol in
+      select id from holidays
+      where calendar_template_id = v_default_tpl_id
+        and is_optional = true
+      order by holiday_date asc
+      limit 2
+    loop
+      insert into employee_optional_holiday_selections (employee_id, holiday_id, calendar_template_id)
+      values (r_emp.id, r_hol.id, v_default_tpl_id)
+      on conflict do nothing;
+
+      v_count := v_count + 1;
+    end loop;
+  end loop;
+
+  update scheduled_job_logs
+  set status = 'success', records_processed_count = v_count, completed_at = now()
+  where id = v_job_id;
+exception when others then
+  update scheduled_job_logs
+  set status = 'failed', error_details = SQLERRM, completed_at = now()
+  where id = v_job_id;
+end;
+$$;
+
 -- 4. Performance Indexes
 create index if not exists idx_comp_off_grants_expiry_status
   on comp_off_grants (expiry_date, status);
@@ -103,5 +216,6 @@ create index if not exists idx_comp_off_grants_expiry_status
 -- 5. Row Level Security
 alter table scheduled_job_logs enable row level security;
 
+drop policy if exists job_logs_read on scheduled_job_logs;
 create policy job_logs_read on scheduled_job_logs for select
   using (has_permission('job.view'));

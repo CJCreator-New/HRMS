@@ -123,17 +123,11 @@ export default function CalendarManagementPage() {
     }
     const next = isSelected ? selectedOptional.filter((hId) => hId !== id) : [...selectedOptional, id];
     setSelectedOptional(next);
-    const employeeId = "persona-emp-001";
-    const res = await selectOptionalHolidayAction(employeeId, id, !isSelected);
-    if ("error" in res) {
+    const res = await selectOptionalHolidayAction("", id, !isSelected);
+    if ("error" in res && res.error) {
       toast(res.error, "error");
       setSelectedOptional(selectedOptional);
     }
-  };
-
-  const handleSimulateAutoAllocation = () => {
-    setSelectedOptional(["5", "6"]);
-    toast("Optional holiday selection deadline passed. HR-curated default set automatically assigned.");
   };
 
   return (
@@ -150,12 +144,6 @@ export default function CalendarManagementPage() {
               className="px-3.5 py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold rounded-lg transition flex items-center gap-1.5 shadow-xs"
             >
               <Upload className="w-4 h-4" /> Batch Assign Calendar (.xlsx / .csv)
-            </button>
-            <button
-              onClick={handleSimulateAutoAllocation}
-              className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-semibold rounded-lg border border-amber-200 transition flex items-center gap-1.5"
-            >
-              <Clock className="w-4 h-4 text-amber-600" aria-hidden="true" /> Simulate Deadline Auto-Allocation
             </button>
           </div>
         }

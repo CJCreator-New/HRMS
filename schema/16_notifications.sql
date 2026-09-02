@@ -54,3 +54,24 @@ create policy notifications_insert on inbox_notifications for insert
   with check (recipient_id = auth_employee_id() or has_permission('settings.manage'));
 create policy notifications_update on inbox_notifications for update
   using (recipient_id = auth_employee_id());
+
+-- 5. Notification Preferences (§8.2, P2-7)
+create table if not exists notification_preferences (
+  id              uuid primary key default gen_random_uuid(),
+  employee_id     uuid not null references employees(id) on delete cascade,
+  module          text not null, -- 'leaves', 'payroll', 'attendance', 'documents', 'announcements'
+  email_enabled   boolean not null default true,
+  in_app_enabled  boolean not null default true,
+  updated_at      timestamptz not null default now(),
+  constraint uq_emp_module_pref unique (employee_id, module)
+);
+
+alter table notification_preferences enable row level security;
+
+create policy notif_pref_read on notification_preferences for select
+  using (employee_id = auth_employee_id() or has_permission('settings.manage'));
+
+create policy notif_pref_write on notification_preferences for all
+  using (employee_id = auth_employee_id() or has_permission('settings.manage'))
+  with check (employee_id = auth_employee_id() or has_permission('settings.manage'));
+

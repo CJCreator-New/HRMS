@@ -251,7 +251,7 @@ describe("Offboarding — Toggle Clearance", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const result = await toggleClearanceAction("sep-001", "IT", true);
-    expect(result.success).toBe(true);
+    expect((result as any).success).toBe(true);
 
     expect(writes[0].payload).toMatchObject({
       department_name: "IT",
@@ -284,7 +284,7 @@ describe("Offboarding — Toggle Clearance", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const result = await toggleClearanceAction("sep-001", "Finance", false);
-    expect(result.success).toBe(true);
+    expect((result as any).success).toBe(true);
 
     expect(writes[0].payload).toMatchObject({
       department_name: "Finance",
@@ -309,7 +309,7 @@ describe("Offboarding — Toggle Clearance", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const result = await toggleClearanceAction("sep-001", "IT", true);
-    expect(result.error).toContain("No F&F settlement found");
+    expect((result as any).error).toContain("No F&F settlement found");
   });
 
   it("blocks users without offboarding.manage permission", async () => {
@@ -318,7 +318,7 @@ describe("Offboarding — Toggle Clearance", () => {
     });
 
     const result = await toggleClearanceAction("sep-001", "IT", true);
-    expect(result.error).toContain("Insufficient permissions");
+    expect((result as any).error).toContain("Insufficient permissions");
   });
 });
 
@@ -360,8 +360,8 @@ describe("Offboarding — Approve F&F", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const result = await approveFfAction("sep-001");
-    expect(result.success).toBe(true);
-    expect(result.lwdReached).toBe(true);
+    expect((result as any).success).toBe(true);
+    expect((result as any).lwdReached).toBe(true);
 
     // F&F status updated
     const ffUpdate = updates.find((u) => u.table === "ff_settlement_records");
@@ -392,7 +392,7 @@ describe("Offboarding — Approve F&F", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const result = await approveFfAction("sep-001");
-    expect(result.error).toContain("Self-approval");
+    expect((result as any).error).toContain("Self-approval");
   });
 
   it("returns error when no F&F settlement exists", async () => {
@@ -405,7 +405,7 @@ describe("Offboarding — Approve F&F", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const result = await approveFfAction("sep-001");
-    expect(result.error).toContain("No F&F settlement found");
+    expect((result as any).error).toContain("No F&F settlement found");
   });
 
   it("blocks users without ff.approve permission", async () => {
@@ -414,7 +414,7 @@ describe("Offboarding — Approve F&F", () => {
     });
 
     const result = await approveFfAction("sep-001");
-    expect(result.error).toContain("Insufficient permissions");
+    expect((result as any).error).toContain("Insufficient permissions");
   });
 });
 
@@ -443,7 +443,7 @@ describe("Offboarding — Trigger Stale F&F", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const result = await triggerStaleFfAction("sep-001");
-    expect(result.success).toBe(true);
+    expect((result as any).success).toBe(true);
 
     expect(writes[0].payload).toMatchObject({
       employee_id: FIXTURES.employee.id,
@@ -457,6 +457,6 @@ describe("Offboarding — Trigger Stale F&F", () => {
     });
 
     const result = await triggerStaleFfAction("sep-001");
-    expect(result.error).toContain("Insufficient permissions");
+    expect((result as any).error).toContain("Insufficient permissions");
   });
 });

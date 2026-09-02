@@ -45,6 +45,13 @@ const nextConfig = {
             key: "Permissions-Policy",
             value: "camera=(), microphone=(), geolocation=()",
           },
+          {
+            key: "Strict-Transport-Security",
+            value:
+              process.env.NODE_ENV === "production"
+                ? "max-age=31536000; includeSubDomains; preload"
+                : "max-age=0",
+          },
         ],
       },
     ];

@@ -94,6 +94,7 @@ create table leave_ledger (
   days                  numeric(5,2) not null,
   balance_after         numeric(5,2) not null,
   reference_id          uuid,
+  ff_settlement_id      uuid,
   created_at            timestamptz not null default now()
 );
 

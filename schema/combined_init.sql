@@ -57,6 +57,48 @@ $$;
 
 -- END FILE: 00_setup.sql
 
+-- BEGIN FILE: 00_auth_helpers.sql
+-- ============================================================================
+-- HRMS v2.7 — Module 00_auth_helpers: Authentication & Identity Helpers
+-- Database Target: PostgreSQL / Supabase
+-- Target File: schema/00_auth_helpers.sql
+-- Strictly breaks circular dependency between 01_rbac and 02_org (P0-2)
+-- ============================================================================
+--
+-- DEPENDENCY GRAPH:
+--   00_setup.sql -> 00_auth_helpers.sql -> 01_rbac.sql -> 02_org.sql -> subsequent modules
+--
+-- DEPENDENCIES: 00_setup.sql
+-- DEPENDENTS: 01_rbac.sql, 02_org.sql, and all subsequent modules
+-- Provides: auth_employee_id() base helper (safe against unmigrated schema)
+-- ============================================================================
+
+-- Minimal, non-circular helper: Resolves employee ID from auth.uid().
+-- If the employees table does not yet exist or is being created, gracefully
+-- returns auth.uid() without failing with relation missing errors.
+create or replace function auth_employee_id() returns uuid
+language plpgsql stable as $$
+declare
+  v_emp_id uuid;
+begin
+  -- If employees table exists, query it; otherwise safely return auth.uid()
+  if exists (
+    select 1 from information_schema.tables
+    where table_schema = 'public' and table_name = 'employees'
+  ) then
+    select id into v_emp_id from employees where auth_user_id = auth.uid() limit 1;
+    if v_emp_id is not null then
+      return v_emp_id;
+    end if;
+  end if;
+
+  return auth.uid();
+end;
+$$;
+
+
+-- END FILE: 00_auth_helpers.sql
+
 -- BEGIN FILE: 01_rbac.sql
 -- ============================================================================
 -- HRMS v2.7 — Module 01: Role-Based Access Control (RBAC)
@@ -65,15 +107,16 @@ $$;
 -- Strictly aligned with FR §1.1, §1.2, & §1.3
 -- ============================================================================
 --
--- DEPENDENCIES: 02_org.sql (employees table, is_current_manager_of())
---               Note: Circular ref with 02_org — PostgreSQL resolves via
---               deferred body validation; both files must be applied together.
+-- DEPENDENCY GRAPH:
+--   00_setup.sql -> 00_auth_helpers.sql -> 01_rbac.sql -> 02_org.sql -> subsequent modules
+--
+-- DEPENDENCIES: 00_setup.sql, 00_auth_helpers.sql (auth_employee_id)
 -- DEPENDENTS: 02_org.sql, 03_settings.sql, 04_work_calendar.sql,
 --             05_attendance.sql, 06_leave.sql, 07_salary.sql, and ALL
 --             subsequent modules (RLS policies call has_permission/auth_employee_id)
 -- Provides: roles, permissions, role_permissions, employee_roles tables,
---           auth_employee_id(), has_permission(), has_any_permission(),
---           acted_as_approver(), block_self_grant_of_approval_permission() trigger========
+--           has_permission(), has_any_permission(), acted_as_approver(),
+--           block_self_grant_of_approval_permission() trigger========
 
 -- 1. Core Tables
 create table roles (
@@ -483,9 +526,12 @@ where r.code = 'it_admin' and p.code in (
 -- Strictly aligned with FR §2.1–§2.6 & ADR 0001
 -- ============================================================================
 --
--- DEPENDENCIES: 00_setup.sql (set_updated_at trigger fn)
---               01_rbac.sql (auth_employee_id, has_permission for RLS policies)
---               Note: Circular ref with 01_rbac — both files must be applied together.
+-- DEPENDENCY GRAPH:
+--   00_setup.sql -> 00_auth_helpers.sql -> 01_rbac.sql -> 02_org.sql -> subsequent modules
+--
+-- DEPENDENCIES: 00_setup.sql (set_updated_at trigger fn),
+--               00_auth_helpers.sql (auth_employee_id),
+--               01_rbac.sql (has_permission for RLS policies)
 -- DEPENDENTS: 03_settings.sql, 04_work_calendar.sql, 05_attendance.sql,
 --             06_leave.sql, 07_salary.sql, and ALL subsequent modules
 --             (employees table is the core FK target for the entire schema)
@@ -507,6 +553,11 @@ create table employees (
   full_name            text not null,
   email                text not null unique,
   phone                text,
+  personal_address     text,
+  emergency_contact_name text,
+  emergency_contact_phone text,
+  failed_login_attempts integer not null default 0,
+  locked_until         timestamptz,
   date_of_birth        date,
   date_of_joining      date not null,
   status               employee_status not null default 'invited',
@@ -698,7 +749,8 @@ alter table employee_import_row_result enable row level security;
 create policy employees_read on employees for select
   using (id = auth_employee_id() or has_permission('employee.view', id));
 create policy employees_update on employees for update
-  using (has_permission('employee.edit', id));
+  using (id = auth_employee_id() or has_permission('employee.edit', id))
+  with check (id = auth_employee_id() or has_permission('employee.edit', id));
 create policy employees_insert on employees for insert
   with check (has_permission('employee.create'));
 
@@ -1220,6 +1272,7 @@ create table leave_ledger (
   days                  numeric(5,2) not null,
   balance_after         numeric(5,2) not null,
   reference_id          uuid,
+  ff_settlement_id      uuid,
   created_at            timestamptz not null default now()
 );
 
@@ -2058,6 +2111,42 @@ values (
   '{"pt_slabs": {"Karnataka": [{"max": 24999, "tax": 0}, {"min": 25000, "tax": 200}]}}'::jsonb
 ) on conflict do nothing;
 
+-- 6. Tax Investment Declarations (80C, 80D, HRA) (§7, P2-5)
+create table if not exists investment_declarations (
+  id                       uuid primary key default gen_random_uuid(),
+  employee_id              uuid not null references employees(id) on delete cascade,
+  financial_year           text not null, -- e.g. '2025-2026'
+  section_80c_amount       numeric(12,2) not null default 0.00,
+  section_80d_amount       numeric(12,2) not null default 0.00,
+  section_80g_amount       numeric(12,2) not null default 0.00,
+  other_exemptions_amount  numeric(12,2) not null default 0.00,
+  hra_annual_rent          numeric(12,2) not null default 0.00,
+  total_declared_amount    numeric(12,2) not null default 0.00,
+  status                   text not null default 'draft', -- 'draft', 'submitted', 'verified', 'rejected'
+  submitted_at             timestamptz,
+  reviewed_by              uuid references employees(id),
+  reviewed_at              timestamptz,
+  review_remarks           text,
+  created_at               timestamptz not null default now(),
+  updated_at               timestamptz not null default now(),
+  constraint uq_emp_fy_declaration unique (employee_id, financial_year)
+);
+
+alter table investment_declarations enable row level security;
+
+create policy inv_decl_read on investment_declarations for select
+  using (employee_id = auth_employee_id() or has_permission('statutory.view'));
+
+create policy inv_decl_insert on investment_declarations for insert
+  with check (employee_id = auth_employee_id());
+
+create policy inv_decl_update on investment_declarations for update
+  using (
+    (employee_id = auth_employee_id() and status in ('draft', 'rejected'))
+    or has_permission('statutory.edit')
+  );
+
+
 
 -- END FILE: 10_statutory.sql
 
@@ -2332,14 +2421,33 @@ create table ff_clearances (
   unique (ff_settlement_id, department_name)
 );
 
--- 4. Stale-Input Invalidation Function (§5.4)
+-- Foreign key linking leave_ledger transactions to F&F settlement (P3-8)
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'fk_leave_ledger_ff_settlement'
+  ) then
+    alter table leave_ledger
+      add constraint fk_leave_ledger_ff_settlement
+      foreign key (ff_settlement_id) references ff_settlement_records(id) on delete set null;
+  end if;
+end;
+$$;
+
+-- 4. Stale-Input Invalidation Function (§5.4, P3-8)
 create or replace function invalidate_stale_ff_settlement() returns trigger
 language plpgsql as $$
 begin
   -- If leave encashment or LOP records change after draft F&F creation, mark F&F stale
-  update ff_settlement_records
-  set is_stale = true, updated_at = now()
-  where employee_id = new.employee_id and status = 'draft';
+  if TG_TABLE_NAME = 'leave_ledger' and new.ff_settlement_id is not null then
+    update ff_settlement_records
+    set is_stale = true, updated_at = now()
+    where id = new.ff_settlement_id and status = 'draft';
+  else
+    update ff_settlement_records
+    set is_stale = true, updated_at = now()
+    where employee_id = new.employee_id and status = 'draft';
+  end if;
   return new;
 end;
 $$;
@@ -2434,6 +2542,59 @@ create policy attachments_insert on document_attachments for insert
 create policy attachments_delete on document_attachments for delete
   using (uploaded_by = auth_employee_id() or has_permission('settings.manage'));
 
+-- 5. Document Categories (§6, P2-4)
+create table if not exists document_categories (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null unique,
+  code        text not null unique,
+  description text,
+  is_system   boolean not null default false,
+  created_at  timestamptz not null default now()
+);
+
+-- Seed standard document categories
+insert into document_categories (name, code, description, is_system) values
+  ('Identity Proof', 'identity_proof', 'Government-issued ID proofs (Passport, Aadhaar, PAN)', true),
+  ('Educational Certificates', 'education', 'Degrees, diplomas, and academic transcripts', true),
+  ('Employment Contracts', 'contracts', 'Signed offer letters, NDAs, and agreements', true),
+  ('Tax Documents', 'tax_docs', 'Form 16, investment proofs, and declarations', true),
+  ('Medical & Fitness', 'medical', 'Health checks and fitness certificates', true)
+on conflict (code) do nothing;
+
+-- Document categorization & lifecycle extensions on attachments
+alter table document_attachments
+  add column if not exists category_id uuid references document_categories(id),
+  add column if not exists document_version integer not null default 1,
+  add column if not exists expires_at date,
+  add column if not exists reminder_days integer default 30;
+
+-- 6. Document Version History (§6, P2-4)
+create table if not exists document_versions (
+  id              uuid primary key default gen_random_uuid(),
+  attachment_id   uuid not null references document_attachments(id) on delete cascade,
+  version_number  integer not null,
+  file_name       text not null,
+  file_size_bytes bigint not null,
+  storage_path    text not null,
+  uploaded_by     uuid not null references employees(id),
+  uploaded_at     timestamptz not null default now(),
+  notes           text,
+  constraint uq_attachment_version unique (attachment_id, version_number)
+);
+
+alter table document_categories enable row level security;
+alter table document_versions enable row level security;
+
+create policy doc_categories_read on document_categories for select using (true);
+create policy doc_categories_write on document_categories for all
+  using (has_permission('settings.manage')) with check (has_permission('settings.manage'));
+
+create policy doc_versions_read on document_versions for select
+  using (uploaded_by = auth_employee_id() or has_permission('employee.view', uploaded_by));
+create policy doc_versions_insert on document_versions for insert
+  with check (uploaded_by = auth_employee_id() or has_permission('employee.edit', uploaded_by));
+
+
 
 -- END FILE: 14_attachments.sql
 
@@ -2514,6 +2675,48 @@ alter table audit_logs enable row level security;
 create policy audit_logs_read on audit_logs for select
   using (has_permission('audit.view'));
 
+-- 5. User Active Sessions Tracking (§8.1, P2-8)
+create table if not exists user_sessions (
+  id              uuid primary key default gen_random_uuid(),
+  employee_id     uuid not null references employees(id) on delete cascade,
+  session_token   text not null,
+  ip_address      text,
+  user_agent      text,
+  device_type     text default 'desktop',
+  is_active       boolean not null default true,
+  last_active_at  timestamptz not null default now(),
+  created_at      timestamptz not null default now()
+);
+
+create index if not exists idx_user_sessions_emp on user_sessions(employee_id, is_active);
+
+alter table user_sessions enable row level security;
+
+create policy sessions_read on user_sessions for select
+  using (employee_id = auth_employee_id() or has_permission('settings.manage'));
+
+create policy sessions_write on user_sessions for all
+  using (employee_id = auth_employee_id() or has_permission('settings.manage'))
+  with check (employee_id = auth_employee_id() or has_permission('settings.manage'));
+
+-- 6. Audit Log Archival Stored Procedure (P3-6)
+create or replace function archive_old_audit_logs(p_retention_days integer default 365)
+returns table (archived_count bigint) language plpgsql security definer as $$
+declare
+  v_count bigint;
+begin
+  with deleted as (
+    delete from audit_logs
+    where created_at < (now() - (p_retention_days || ' days')::interval)
+    returning 1
+  )
+  select count(*) into v_count from deleted;
+
+  return query select v_count;
+end;
+$$;
+
+
 
 -- END FILE: 15_audit.sql
 
@@ -2575,6 +2778,27 @@ create policy notifications_insert on inbox_notifications for insert
 create policy notifications_update on inbox_notifications for update
   using (recipient_id = auth_employee_id());
 
+-- 5. Notification Preferences (§8.2, P2-7)
+create table if not exists notification_preferences (
+  id              uuid primary key default gen_random_uuid(),
+  employee_id     uuid not null references employees(id) on delete cascade,
+  module          text not null, -- 'leaves', 'payroll', 'attendance', 'documents', 'announcements'
+  email_enabled   boolean not null default true,
+  in_app_enabled  boolean not null default true,
+  updated_at      timestamptz not null default now(),
+  constraint uq_emp_module_pref unique (employee_id, module)
+);
+
+alter table notification_preferences enable row level security;
+
+create policy notif_pref_read on notification_preferences for select
+  using (employee_id = auth_employee_id() or has_permission('settings.manage'));
+
+create policy notif_pref_write on notification_preferences for all
+  using (employee_id = auth_employee_id() or has_permission('settings.manage'))
+  with check (employee_id = auth_employee_id() or has_permission('settings.manage'));
+
+
 
 -- END FILE: 16_notifications.sql
 
@@ -2596,9 +2820,14 @@ create policy notifications_update on inbox_notifications for update
 --           job_expire_comp_off_grants() functions========
 
 -- 1. Job Execution Audit Log
-create type job_status as enum ('running', 'success', 'failed');
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'job_status') then
+    create type job_status as enum ('running', 'success', 'failed');
+  end if;
+end $$;
 
-create table scheduled_job_logs (
+create table if not exists scheduled_job_logs (
   id                       uuid primary key default gen_random_uuid(),
   job_name                 text not null,
   status                   job_status not null default 'running',
@@ -2677,6 +2906,114 @@ exception when others then
 end;
 $$;
 
+-- 4. Annual Year-End Leave Carry-Forward Job Function (§4.3, §4.6)
+create or replace function job_year_end_carry_forward(p_year integer default extract(year from current_date)::integer - 1)
+returns void language plpgsql as $$
+declare
+  v_job_id uuid;
+  v_count integer := 0;
+  r record;
+  v_remaining numeric(5,2);
+  v_carried numeric(5,2);
+  v_lapsed numeric(5,2);
+  v_cap numeric(5,2) := 30.00;
+begin
+  insert into scheduled_job_logs (job_name) values ('year_end_carry_forward') returning id into v_job_id;
+
+  for r in
+    select la.employee_id, la.leave_type_id, la.allocated_days, la.carry_forward_days, la.used_days, lt.code
+    from leave_allocations la
+    join leave_types lt on lt.id = la.leave_type_id
+    join employees e on e.id = la.employee_id
+    where la.year = p_year
+      and e.status = 'active'
+      and lt.code in ('EL', 'PL')
+  loop
+    v_remaining := greatest(0.00, (r.allocated_days + r.carry_forward_days - r.used_days));
+    v_carried := least(v_remaining, v_cap);
+    v_lapsed := v_remaining - v_carried;
+
+    if v_carried > 0 then
+      insert into leave_allocations (employee_id, leave_type_id, year, allocated_days, carry_forward_days)
+      values (r.employee_id, r.leave_type_id, p_year + 1, 0.00, v_carried)
+      on conflict (employee_id, leave_type_id, year) do update set
+        carry_forward_days = v_carried,
+        updated_at = now();
+
+      insert into leave_ledger (employee_id, leave_type_id, transaction_type, days, balance_after, remarks)
+      values (r.employee_id, r.leave_type_id, 'carry_forward', v_carried, v_carried, 'Annual year-end carry forward from year ' || p_year);
+
+      v_count := v_count + 1;
+    end if;
+
+    if v_lapsed > 0 then
+      insert into leave_ledger (employee_id, leave_type_id, transaction_type, days, balance_after, remarks)
+      values (r.employee_id, r.leave_type_id, 'manual_adjustment', -v_lapsed, v_carried, 'Lapsed leave days exceeding annual carry forward cap for year ' || p_year);
+    end if;
+  end loop;
+
+  update scheduled_job_logs
+  set status = 'success', records_processed_count = v_count, completed_at = now()
+  where id = v_job_id;
+exception when others then
+  update scheduled_job_logs
+  set status = 'failed', error_details = SQLERRM, completed_at = now()
+  where id = v_job_id;
+end;
+$$;
+
+-- 5. Optional Holiday Deadline Auto-Allocation Job Function (§3.2)
+create or replace function job_allocate_default_optional_holidays()
+returns void language plpgsql as $$
+declare
+  v_job_id uuid;
+  v_count integer := 0;
+  v_default_tpl_id uuid;
+  r_emp record;
+  r_hol record;
+begin
+  insert into scheduled_job_logs (job_name) values ('optional_holiday_auto_allocation') returning id into v_job_id;
+
+  select id into v_default_tpl_id from work_calendar_templates where is_default = true limit 1;
+
+  if v_default_tpl_id is null then
+    update scheduled_job_logs set status = 'failed', error_details = 'Default work calendar template missing' where id = v_job_id;
+    return;
+  end if;
+
+  for r_emp in
+    select e.id
+    from employees e
+    where e.status = 'active'
+      and not exists (
+        select 1 from employee_optional_holiday_selections s where s.employee_id = e.id
+      )
+  loop
+    for r_hol in
+      select id from holidays
+      where calendar_template_id = v_default_tpl_id
+        and is_optional = true
+      order by holiday_date asc
+      limit 2
+    loop
+      insert into employee_optional_holiday_selections (employee_id, holiday_id, calendar_template_id)
+      values (r_emp.id, r_hol.id, v_default_tpl_id)
+      on conflict do nothing;
+
+      v_count := v_count + 1;
+    end loop;
+  end loop;
+
+  update scheduled_job_logs
+  set status = 'success', records_processed_count = v_count, completed_at = now()
+  where id = v_job_id;
+exception when others then
+  update scheduled_job_logs
+  set status = 'failed', error_details = SQLERRM, completed_at = now()
+  where id = v_job_id;
+end;
+$$;
+
 -- 4. Performance Indexes
 create index if not exists idx_comp_off_grants_expiry_status
   on comp_off_grants (expiry_date, status);
@@ -2684,6 +3021,7 @@ create index if not exists idx_comp_off_grants_expiry_status
 -- 5. Row Level Security
 alter table scheduled_job_logs enable row level security;
 
+drop policy if exists job_logs_read on scheduled_job_logs;
 create policy job_logs_read on scheduled_job_logs for select
   using (has_permission('job.view'));
 
@@ -3873,6 +4211,15 @@ create policy components_update on public.salary_components
   for update using (has_permission('salary.edit')) with check (has_permission('salary.edit'));
 create policy components_delete on public.salary_components
   for delete using (has_permission('salary.edit'));
+
+-- 7. Add Profile Details and Account Lockout Columns (P1-6 & P2-1)
+alter table public.employees
+  add column if not exists personal_address text,
+  add column if not exists emergency_contact_name text,
+  add column if not exists emergency_contact_phone text,
+  add column if not exists failed_login_attempts integer not null default 0,
+  add column if not exists locked_until timestamptz;
+
 
 
 -- END FILE: 26_production_hardening_and_indexes.sql

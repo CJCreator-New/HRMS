@@ -32,15 +32,15 @@
 | Persona email | Roles | Notes |
 |---|---|---|
 | `sysadmin@company.com` | system_admin | ALL bypass |
-| `hradmin@company.com` | hr | mock over-grants `/permissions` (D9) |
-| `payroll@company.com` | payroll_admin | |
+| `hradmin@company.com` | hr | HR route set (D9 over-grant closed in mock-rbac) |
+| `payroll@company.com` | payroll_admin | Dedicated payroll & statutory operations |
 | `manager.m1@company.com` | manager | team of E1/E2 |
 | `manager.m2@company.com` | manager | team of E3 |
-| `employee.e1@company.com` | employee | mock over-grants `/payroll` (D2) |
+| `employee.e1@company.com` | employee | Standard employee route set (D2 over-grant closed in mock-rbac) |
 | `employee.e2@company.com` | employee | deny-all (restricted persona) |
 | `employee.e3@company.com` | employee | pure employee route set |
-| `multi.hrmgr@company.com` | hr + manager | union persona; mock under-grants `/salary` (D15) |
-| `hr.alt@company.com` | hr | deny-all in mock, functional approver in real (D12) |
+| `multi.hrmgr@company.com` | hr + manager | union persona with `/salary` access (D15 closed) |
+| `hr.alt@company.com` | hr | Functional HR approver with full HR allow-list (D12 closed) |
 | `invited.emp@company.com` | employee | `mustChangePassword: true` |
 | `notice.emp@company.com` | employee | notice period keeps access |
 | `suspended.emp@company.com` | employee | deny-all (access revoked) |

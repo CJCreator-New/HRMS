@@ -12,8 +12,9 @@ services:
       - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL:-https://placeholder.supabase.co}
       - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY:-placeholder-anon-key}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
-      - NEXT_PUBLIC_MOCK_AUTH=${NEXT_PUBLIC_MOCK_AUTH:-true}
+      - NEXT_PUBLIC_MOCK_AUTH=${NEXT_PUBLIC_MOCK_AUTH:-false}
       - NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+      # Redis Rate Limiting (Required in production for multi-instance deployments)
       - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL:-}
       - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN:-}
     healthcheck:

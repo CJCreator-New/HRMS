@@ -211,3 +211,12 @@ create policy components_update on public.salary_components
   for update using (has_permission('salary.edit')) with check (has_permission('salary.edit'));
 create policy components_delete on public.salary_components
   for delete using (has_permission('salary.edit'));
+
+-- 7. Add Profile Details and Account Lockout Columns (P1-6 & P2-1)
+alter table public.employees
+  add column if not exists personal_address text,
+  add column if not exists emergency_contact_name text,
+  add column if not exists emergency_contact_phone text,
+  add column if not exists failed_login_attempts integer not null default 0,
+  add column if not exists locked_until timestamptz;
+

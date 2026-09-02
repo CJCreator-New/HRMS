@@ -18,13 +18,9 @@ interface AttachmentItem {
   entity_type: string;
   scan_status: "pending" | "clean" | "flagged";
   uploaded_at: string;
+  version: number;
+  category_name: string;
 }
-
-const INITIAL_DOCS: AttachmentItem[] = [
-  { id: "doc-1", file_name: "uber_receipt_1450.pdf", file_size: "245 KB", mime_type: "application/pdf", entity_type: "reimbursements", scan_status: "clean", uploaded_at: "2026-08-10 14:20" },
-  { id: "doc-2", file_name: "medical_certificate.jpg", file_size: "1.2 MB", mime_type: "image/jpeg", entity_type: "leave_requests", scan_status: "clean", uploaded_at: "2026-08-05 09:15" },
-  { id: "doc-3", file_name: "suspicious_exec.exe", file_size: "4.5 MB", mime_type: "application/octet-stream", entity_type: "employees", scan_status: "flagged", uploaded_at: "2026-08-01 11:30" },
-];
 
 export default function DocumentsPage() {
   const [docs, setDocs] = useState<AttachmentItem[]>([]);
@@ -38,7 +34,7 @@ export default function DocumentsPage() {
     setLoading(true);
     const res = await getAttachmentsAction();
     if (res.attachments) {
-      const mapped: AttachmentItem[] = res.attachments.map((a: { id: string; file_name: string; file_size_bytes?: number; mime_type?: string; entity_type: string; scan_status?: "pending" | "clean" | "flagged" | "infected" | "quarantined"; created_at?: string }) => ({
+      const mapped: AttachmentItem[] = res.attachments.map((a: any) => ({
         id: a.id,
         file_name: a.file_name,
         file_size: `${((a.file_size_bytes || 0) / 1024).toFixed(1)} KB`,
@@ -46,6 +42,8 @@ export default function DocumentsPage() {
         entity_type: a.entity_type,
         scan_status: a.scan_status === "clean" || a.scan_status === "pending" || a.scan_status === "flagged" ? a.scan_status : "clean",
         uploaded_at: a.created_at?.replace("T", " ").substring(0, 16) || "",
+        version: a.document_version || 1,
+        category_name: a.category?.name || "General",
       }));
       setDocs(mapped);
     }
@@ -66,13 +64,29 @@ export default function DocumentsPage() {
       return;
     }
 
+    let fileBase64 = "";
+    try {
+      const buffer = await selectedFile.arrayBuffer();
+      fileBase64 = Buffer.from(buffer).toString("base64");
+    } catch {
+      fileBase64 = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const res = reader.result as string;
+          resolve(res.includes(",") ? res.split(",")[1] : res);
+        };
+        reader.readAsDataURL(selectedFile);
+      });
+    }
+
     const res = await uploadAttachmentAction(
       entityType,
-      "dummy-entity-id",
+      "",
       selectedFile.name,
       selectedFile.size,
       selectedFile.type || "application/pdf",
-      `/attachments/${selectedFile.name}`
+      "",
+      fileBase64
     );
 
     if ("error" in res && res.error) {
@@ -80,13 +94,16 @@ export default function DocumentsPage() {
       return;
     }
 
+    const uploaded = "attachment" in res && res.attachment ? res.attachment : null;
     const newDoc: AttachmentItem = {
-      id: Date.now().toString(),
+      id: uploaded?.id || Date.now().toString(),
       file_name: selectedFile.name,
       file_size: `${(selectedFile.size / 1024).toFixed(1)} KB`,
       mime_type: selectedFile.type || "application/octet-stream",
       entity_type: entityType,
-      scan_status: "clean",
+      scan_status: uploaded?.scan_status || "pending",
+      version: 1,
+      category_name: "General",
       uploaded_at: new Date().toISOString().replace("T", " ").substring(0, 16),
     };
 
@@ -172,8 +189,15 @@ export default function DocumentsPage() {
           renderRow={(d: AttachmentItem) => (
             <tr key={d.id} className="hover:bg-surface-muted/50">
               <td className="px-4 py-3">
-                <p className="font-bold text-ink">{d.file_name}</p>
-                <p className="text-[11px] text-ink-muted">Entity: {d.entity_type}</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-bold text-ink">{d.file_name}</p>
+                  <span className="px-1.5 py-0.5 rounded bg-surface-muted text-ink-secondary text-[10px] font-mono font-semibold border border-line">
+                    v{d.version}
+                  </span>
+                </div>
+                <p className="text-[11px] text-ink-muted">
+                  <span className="font-medium text-ink-secondary">{d.category_name}</span> • Entity: {d.entity_type}
+                </p>
               </td>
               <td className="px-4 py-3 font-mono text-ink-secondary">
                 {d.file_size}

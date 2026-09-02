@@ -10,6 +10,8 @@ import { ForcePasswordResetModal } from "@/components/auth/ForcePasswordResetMod
 import { ToastProvider } from "@/components/shared/Toast";
 import { BackToTop } from "@/components/shared/BackToTop";
 
+import { MockAuthBanner } from "@/components/shared/MockAuthBanner";
+
 function AppShellContent({ children }: { children: React.ReactNode }) {
   const { mustChangePassword } = useRole();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -31,6 +33,7 @@ function AppShellContent({ children }: { children: React.ReactNode }) {
       />
 
       <div className="flex-1 flex flex-col min-w-0 lg:ml-64 ml-0">
+        <MockAuthBanner />
         <Header onOpenMobileMenu={() => setMobileMenuOpen(true)} />
         <main id="main-content" className="flex-1 p-4 sm:p-6 overflow-y-auto" tabIndex={-1}>
           {children}

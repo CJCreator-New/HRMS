@@ -99,3 +99,39 @@ values (
   0.75,
   '{"pt_slabs": {"Karnataka": [{"max": 24999, "tax": 0}, {"min": 25000, "tax": 200}]}}'::jsonb
 ) on conflict do nothing;
+
+-- 6. Tax Investment Declarations (80C, 80D, HRA) (§7, P2-5)
+create table if not exists investment_declarations (
+  id                       uuid primary key default gen_random_uuid(),
+  employee_id              uuid not null references employees(id) on delete cascade,
+  financial_year           text not null, -- e.g. '2025-2026'
+  section_80c_amount       numeric(12,2) not null default 0.00,
+  section_80d_amount       numeric(12,2) not null default 0.00,
+  section_80g_amount       numeric(12,2) not null default 0.00,
+  other_exemptions_amount  numeric(12,2) not null default 0.00,
+  hra_annual_rent          numeric(12,2) not null default 0.00,
+  total_declared_amount    numeric(12,2) not null default 0.00,
+  status                   text not null default 'draft', -- 'draft', 'submitted', 'verified', 'rejected'
+  submitted_at             timestamptz,
+  reviewed_by              uuid references employees(id),
+  reviewed_at              timestamptz,
+  review_remarks           text,
+  created_at               timestamptz not null default now(),
+  updated_at               timestamptz not null default now(),
+  constraint uq_emp_fy_declaration unique (employee_id, financial_year)
+);
+
+alter table investment_declarations enable row level security;
+
+create policy inv_decl_read on investment_declarations for select
+  using (employee_id = auth_employee_id() or has_permission('statutory.view'));
+
+create policy inv_decl_insert on investment_declarations for insert
+  with check (employee_id = auth_employee_id());
+
+create policy inv_decl_update on investment_declarations for update
+  using (
+    (employee_id = auth_employee_id() and status in ('draft', 'rejected'))
+    or has_permission('statutory.edit')
+  );
+

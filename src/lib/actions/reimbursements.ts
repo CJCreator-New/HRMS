@@ -87,28 +87,24 @@ export async function submitReimbursementClaimAction(
   return { success: true, claim };
 }
 
-export async function approveReimbursementClaimAction(
+export async function advanceReimbursementClaim(
   claimId: string,
   decision: "approved" | "rejected",
+  deciderId?: string | null,
   approvedAmount?: number
 ): Promise<{ success: boolean; error?: string; newStatus?: string }> {
-  const csrfError = await validateRequestOrigin();
-  if (csrfError) return { success: false, error: csrfError.error };
-
-  const permError = await assertPermission("reimbursement.approve");
-  if (permError) return { success: false, error: permError.error };
-
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
 
-  let deciderId: string | null = null;
-  if (user) {
-    const { data: emp } = await supabase
-      .from("employees")
-      .select("id")
-      .eq("auth_user_id", user.id)
-      .single();
-    deciderId = emp?.id || null;
+  if (!deciderId) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: emp } = await supabase
+        .from("employees")
+        .select("id")
+        .eq("auth_user_id", user.id)
+        .single();
+      deciderId = emp?.id || null;
+    }
   }
 
   // Fetch claim with category to check approval route
@@ -188,7 +184,7 @@ export async function approveReimbursementClaimAction(
 
   const updatePayload: ReimbursementUpdatePayload = {
     status: nextStatus,
-    approver_id: deciderId,
+    approver_id: deciderId ?? null,
     updated_at: new Date().toISOString(),
   };
 
@@ -208,5 +204,20 @@ export async function approveReimbursementClaimAction(
   if (updateError) return { success: false, error: updateError.message };
   if (!updatedClaim) return { success: false, error: "Claim was already updated by another approver or is no longer in the expected state. Please refresh." };
   return { success: true, newStatus: nextStatus };
+}
+
+export async function approveReimbursementClaimAction(
+  claimId: string,
+  decision: "approved" | "rejected",
+  approvedAmount?: number,
+  approverId?: string
+): Promise<{ success: boolean; error?: string; newStatus?: string }> {
+  const csrfError = await validateRequestOrigin();
+  if (csrfError) return { success: false, error: csrfError.error };
+
+  const permError = await assertPermission("reimbursement.approve");
+  if (permError) return { success: false, error: permError.error };
+
+  return advanceReimbursementClaim(claimId, decision, approverId, approvedAmount);
 }
 

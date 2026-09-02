@@ -35,13 +35,9 @@ function getUpstashLimiter(): Ratelimit | null {
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
 
   if (!url || !token) {
-    // Warn once at startup when Upstash is not configured in production
-    if (!productionWarningShown && process.env.NODE_ENV === "production") {
-      productionWarningShown = true;
-      console.warn(
-        "[RATE-LIMIT] WARNING: UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not configured. " +
-        "Falling back to in-memory rate limiter which is NOT shared across instances. " +
-        "This is a security risk in production — configure Upstash Redis for distributed rate limiting."
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "SECURITY CONFIGURATION ERROR: UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be configured in production for distributed rate limiting."
       );
     }
     return null;
@@ -58,8 +54,51 @@ function getUpstashLimiter(): Ratelimit | null {
     });
     return upstashLimiter;
   } catch {
-    // If Upstash connection fails, fall back to in-memory
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("SECURITY CONFIGURATION ERROR: Failed to connect to Upstash Redis in production.");
+    }
+    // If Upstash connection fails in non-production, fall back to in-memory
     return null;
+  }
+}
+
+/**
+ * Pings Upstash Redis to verify connectivity.
+ * Used by the system health check endpoint and startup verification.
+ */
+export async function pingRedis(): Promise<{
+  ok: boolean;
+  configured: boolean;
+  latencyMs?: number;
+  error?: string;
+}> {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+  if (!url || !token) {
+    return {
+      ok: false,
+      configured: false,
+      error: "Redis credentials not configured",
+    };
+  }
+
+  const start = Date.now();
+  try {
+    const redis = new Redis({ url, token });
+    await redis.ping();
+    return {
+      ok: true,
+      configured: true,
+      latencyMs: Date.now() - start,
+    };
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      configured: true,
+      latencyMs: Date.now() - start,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 

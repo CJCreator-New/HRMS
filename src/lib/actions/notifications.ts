@@ -126,3 +126,79 @@ export async function createNotificationAction(
     return { error: message };
   }
 }
+
+export interface NotificationPreferenceItem {
+  module: string;
+  emailEnabled: boolean;
+  inAppEnabled: boolean;
+}
+
+export async function getNotificationPreferencesAction(
+  targetEmployeeId?: string
+): Promise<{ success: boolean; preferences: NotificationPreferenceItem[]; error?: string }> {
+  const caller = await getAuthenticatedCaller();
+  if (!caller?.employeeId) {
+    return { success: false, preferences: [], error: "Unauthenticated" };
+  }
+
+  const effectiveEmpId = targetEmployeeId || caller.employeeId;
+  if (effectiveEmpId !== caller.employeeId) {
+    const permError = await assertPermission("settings.manage");
+    if (permError) return { success: false, preferences: [], error: permError.error };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("notification_preferences")
+    .select("module, email_enabled, in_app_enabled")
+    .eq("employee_id", effectiveEmpId);
+
+  if (error) {
+    return { success: false, preferences: [], error: error.message };
+  }
+
+  // Default modules matrix
+  const standardModules = ["leaves", "payroll", "attendance", "documents", "announcements"];
+  const existingMap = new Map((data || []).map((p: any) => [p.module, p]));
+
+  const merged: NotificationPreferenceItem[] = standardModules.map((mod) => {
+    const match = existingMap.get(mod);
+    return {
+      module: mod,
+      emailEnabled: match ? match.email_enabled : true,
+      inAppEnabled: match ? match.in_app_enabled : true,
+    };
+  });
+
+  return { success: true, preferences: merged };
+}
+
+export async function updateNotificationPreferencesAction(
+  preferences: NotificationPreferenceItem[]
+): Promise<{ success: boolean; error?: string }> {
+  const csrfError = await validateRequestOrigin();
+  if (csrfError) return { success: false, error: csrfError.error };
+
+  const caller = await getAuthenticatedCaller();
+  if (!caller?.employeeId) {
+    return { success: false, error: "Unauthenticated" };
+  }
+
+  const supabase = await createClient();
+
+  const upserts = preferences.map((p) => ({
+    employee_id: caller.employeeId,
+    module: sanitizeInput(p.module).trim().toLowerCase(),
+    email_enabled: Boolean(p.emailEnabled),
+    in_app_enabled: Boolean(p.inAppEnabled),
+    updated_at: new Date().toISOString(),
+  }));
+
+  const { error } = await supabase
+    .from("notification_preferences")
+    .upsert(upserts, { onConflict: "employee_id,module" });
+
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+

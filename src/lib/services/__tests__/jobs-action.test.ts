@@ -89,26 +89,39 @@ describe("runScheduledJobAction", () => {
     expect(fake.rpc).toHaveBeenCalledWith("job_expire_comp_off_grants");
   });
 
-  it("logs manual jobs that have no RPC", async () => {
-    const writes: Array<{ payload: any }> = [];
+  it("runs the year-end carry forward RPC for matching job names", async () => {
     const fake = createFakeSupabase({
-      respond: (state) => {
-        if (state.table === "scheduled_job_logs" && state.method === "insert") {
-          writes.push({ payload: state.payload });
-          return { data: null, error: null };
-        }
-        return { data: null, error: null };
+      rpcs: {
+        job_year_end_carry_forward: () => ({ data: null, error: null }),
       },
     });
     mocks.createClient.mockReturnValue(fake);
 
-    const res: any = await runScheduledJobAction("manual_review");
+    const res: any = await runScheduledJobAction("year_end_carry_forward");
     expect(res.success).toBe(true);
-    expect(writes[0].payload).toMatchObject({
-      job_name: "manual_review",
-      status: "success",
-      records_processed_count: 1,
+    expect(fake.rpc).toHaveBeenCalledWith("job_year_end_carry_forward");
+  });
+
+  it("runs the optional holiday auto-allocation RPC for matching job names", async () => {
+    const fake = createFakeSupabase({
+      rpcs: {
+        job_allocate_default_optional_holidays: () => ({ data: null, error: null }),
+      },
     });
+    mocks.createClient.mockReturnValue(fake);
+
+    const res: any = await runScheduledJobAction("optional_holiday_auto_allocation");
+    expect(res.success).toBe(true);
+    expect(fake.rpc).toHaveBeenCalledWith("job_allocate_default_optional_holidays");
+  });
+
+  it("fails closed with error for unknown job names", async () => {
+    const fake = createFakeSupabase();
+    mocks.createClient.mockReturnValue(fake);
+
+    const res: any = await runScheduledJobAction("unknown_fake_job");
+    expect(res.success).toBe(false);
+    expect(res.error).toContain("Unknown scheduled job");
   });
 
   it("surfaces RPC errors", async () => {

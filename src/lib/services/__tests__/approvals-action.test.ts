@@ -209,7 +209,7 @@ describe("decideApprovalAction", () => {
         }
         if (state.method === "update") {
           updates.push({ table: state.table, payload: state.payload });
-          return { data: null, error: null };
+          return { data: { id: "c1", ...(state.payload as object) }, error: null };
         }
         return { data: null, error: null };
       },
@@ -241,7 +241,7 @@ describe("decideApprovalAction", () => {
         }
         if (state.method === "update") {
           updates.push({ table: state.table, payload: state.payload });
-          return { data: null, error: null };
+          return { data: { id: "c1", ...(state.payload as object) }, error: null };
         }
         return { data: null, error: null };
       },

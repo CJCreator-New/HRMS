@@ -13,6 +13,13 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Secret Scanning (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -29,8 +36,55 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      - name: Verify RBAC Permission Synchronization
+        run: npm run verify:permissions
+
+      - name: Verify Master Schema Synchronization
+        run: npm run db:sync && git diff --exit-code schema/combined_init.sql
+
       - name: Run Unit Tests
         run: npm run test:unit
 
+      - name: Run Integration Tests
+        run: NEXT_PUBLIC_MOCK_AUTH=false npm run test:integration
+
       - name: Run Linter
         run: npm run lint
+
+  container-security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: hrms-app:${{ github.sha }}
+
+      - name: Run Trivy Container Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: hrms-app:${{ github.sha }}
+          format: table
+          exit-code: 1
+          ignore-unfixed: true
+          severity: CRITICAL
+
+      - name: Generate Software Bill of Materials (SBOM)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: hrms-app:${{ github.sha }}
+          format: spdx-json
+          output: sbom.spdx.json
+
+      - name: Upload SBOM Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-report
+          path: sbom.spdx.json

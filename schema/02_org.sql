@@ -5,9 +5,12 @@
 -- Strictly aligned with FR §2.1–§2.6 & ADR 0001
 -- ============================================================================
 --
--- DEPENDENCIES: 00_setup.sql (set_updated_at trigger fn)
---               01_rbac.sql (auth_employee_id, has_permission for RLS policies)
---               Note: Circular ref with 01_rbac — both files must be applied together.
+-- DEPENDENCY GRAPH:
+--   00_setup.sql -> 00_auth_helpers.sql -> 01_rbac.sql -> 02_org.sql -> subsequent modules
+--
+-- DEPENDENCIES: 00_setup.sql (set_updated_at trigger fn),
+--               00_auth_helpers.sql (auth_employee_id),
+--               01_rbac.sql (has_permission for RLS policies)
 -- DEPENDENTS: 03_settings.sql, 04_work_calendar.sql, 05_attendance.sql,
 --             06_leave.sql, 07_salary.sql, and ALL subsequent modules
 --             (employees table is the core FK target for the entire schema)
@@ -29,6 +32,11 @@ create table employees (
   full_name            text not null,
   email                text not null unique,
   phone                text,
+  personal_address     text,
+  emergency_contact_name text,
+  emergency_contact_phone text,
+  failed_login_attempts integer not null default 0,
+  locked_until         timestamptz,
   date_of_birth        date,
   date_of_joining      date not null,
   status               employee_status not null default 'invited',
@@ -220,7 +228,8 @@ alter table employee_import_row_result enable row level security;
 create policy employees_read on employees for select
   using (id = auth_employee_id() or has_permission('employee.view', id));
 create policy employees_update on employees for update
-  using (has_permission('employee.edit', id));
+  using (id = auth_employee_id() or has_permission('employee.edit', id))
+  with check (id = auth_employee_id() or has_permission('employee.edit', id));
 create policy employees_insert on employees for insert
   with check (has_permission('employee.create'));
 

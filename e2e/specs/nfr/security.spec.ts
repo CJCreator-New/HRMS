@@ -26,7 +26,8 @@ baseTest.describe("NFR-08: Extended Security Probes", () => {
           password: "Password123!",
         },
       });
-      expect([200, 302, 403]).toContain(response.status());
+      // Mismatched origin must be rejected (403 Forbidden or redirected), never accepted with 200 OK
+      expect([403, 302, 303]).toContain(response.status());
     });
   });
 

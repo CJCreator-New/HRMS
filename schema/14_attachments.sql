@@ -61,3 +61,56 @@ create policy attachments_insert on document_attachments for insert
   with check (uploaded_by = auth_employee_id());
 create policy attachments_delete on document_attachments for delete
   using (uploaded_by = auth_employee_id() or has_permission('settings.manage'));
+
+-- 5. Document Categories (§6, P2-4)
+create table if not exists document_categories (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null unique,
+  code        text not null unique,
+  description text,
+  is_system   boolean not null default false,
+  created_at  timestamptz not null default now()
+);
+
+-- Seed standard document categories
+insert into document_categories (name, code, description, is_system) values
+  ('Identity Proof', 'identity_proof', 'Government-issued ID proofs (Passport, Aadhaar, PAN)', true),
+  ('Educational Certificates', 'education', 'Degrees, diplomas, and academic transcripts', true),
+  ('Employment Contracts', 'contracts', 'Signed offer letters, NDAs, and agreements', true),
+  ('Tax Documents', 'tax_docs', 'Form 16, investment proofs, and declarations', true),
+  ('Medical & Fitness', 'medical', 'Health checks and fitness certificates', true)
+on conflict (code) do nothing;
+
+-- Document categorization & lifecycle extensions on attachments
+alter table document_attachments
+  add column if not exists category_id uuid references document_categories(id),
+  add column if not exists document_version integer not null default 1,
+  add column if not exists expires_at date,
+  add column if not exists reminder_days integer default 30;
+
+-- 6. Document Version History (§6, P2-4)
+create table if not exists document_versions (
+  id              uuid primary key default gen_random_uuid(),
+  attachment_id   uuid not null references document_attachments(id) on delete cascade,
+  version_number  integer not null,
+  file_name       text not null,
+  file_size_bytes bigint not null,
+  storage_path    text not null,
+  uploaded_by     uuid not null references employees(id),
+  uploaded_at     timestamptz not null default now(),
+  notes           text,
+  constraint uq_attachment_version unique (attachment_id, version_number)
+);
+
+alter table document_categories enable row level security;
+alter table document_versions enable row level security;
+
+create policy doc_categories_read on document_categories for select using (true);
+create policy doc_categories_write on document_categories for all
+  using (has_permission('settings.manage')) with check (has_permission('settings.manage'));
+
+create policy doc_versions_read on document_versions for select
+  using (uploaded_by = auth_employee_id() or has_permission('employee.view', uploaded_by));
+create policy doc_versions_insert on document_versions for insert
+  with check (uploaded_by = auth_employee_id() or has_permission('employee.edit', uploaded_by));
+

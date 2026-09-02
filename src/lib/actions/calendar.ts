@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { assertPermission, assertAnyPermission } from "@/lib/auth/assertPermission";
+import { assertPermission, assertAnyPermission, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 import { previousDate } from "@/lib/services/compensation-engine";
 import { getTodayDateStringIST } from "@/lib/utils/date-utils";
@@ -51,6 +51,17 @@ export async function selectOptionalHolidayAction(
   const permError = await assertAnyPermission(["settings.manage", "employee.view.self"]);
   if (permError) return permError;
 
+  const caller = await getAuthenticatedCaller();
+  const targetEmployeeId = employeeId?.trim() || caller?.employeeId;
+  if (!targetEmployeeId) {
+    return { error: "Unauthenticated: could not resolve employee identity." };
+  }
+
+  if (caller?.employeeId && employeeId && caller.employeeId !== employeeId) {
+    const adminErr = await assertPermission("settings.manage");
+    if (adminErr) return adminErr;
+  }
+
   const supabase = await createClient();
 
   if (selected) {
@@ -62,20 +73,20 @@ export async function selectOptionalHolidayAction(
     const { data: existing } = await supabase
       .from("employee_optional_holiday_selections")
       .select("holiday_id")
-      .eq("employee_id", employeeId);
+      .eq("employee_id", targetEmployeeId);
     const cap = 2;
     if ((existing?.length || 0) >= cap) {
       return { error: `Maximum limit reached: you can select up to ${cap} optional holidays.` };
     }
     const { error } = await supabase
       .from("employee_optional_holiday_selections")
-      .insert({ employee_id: employeeId, holiday_id: holidayId, calendar_template_id: tmpl?.calendar_template_id || null });
+      .insert({ employee_id: targetEmployeeId, holiday_id: holidayId, calendar_template_id: tmpl?.calendar_template_id || null });
     if (error) return { error: error.message };
   } else {
     const { error } = await supabase
       .from("employee_optional_holiday_selections")
       .delete()
-      .eq("employee_id", employeeId)
+      .eq("employee_id", targetEmployeeId)
       .eq("holiday_id", holidayId);
     if (error) return { error: error.message };
   }

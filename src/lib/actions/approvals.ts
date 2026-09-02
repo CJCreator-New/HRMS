@@ -10,6 +10,7 @@ import {
 import { assertPermission, assertAnyPermission, getAuthenticatedCaller } from "@/lib/auth/assertPermission";
 import { formatDateIndian } from "@/lib/utils/formatters";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
+import { advanceReimbursementClaim } from "@/lib/actions/reimbursements";
 import type { RoleCode } from "@/lib/types";
 
 export async function getPendingApprovalsCountAction(roleFocus?: RoleCode) {
@@ -151,24 +152,13 @@ export async function decideApprovalAction(
   const table = APPROVAL_TABLE_MAP[module];
   if (!table) return { error: `Unknown module: ${module}` };
 
-  // --- Approver identity verification (APP-01) ---
-  // For modules with an assigned_approver_id, verify the acting employee is the
-  // assigned approver (or HR/System Admin bypass). This prevents any manager with
-  // the approve permission from approving requests they weren't assigned to.
+  // --- Reimbursement module delegation to unified domain FSM (G-P0-04) ---
   if (module === "reimbursement" || module === "reimbursement_claim") {
-    const { data: claim } = await supabase
-      .from("reimbursement_claims")
-      .select("approver_id, status")
-      .eq("id", recordId)
-      .single();
-    if (claim?.approver_id && claim.approver_id !== emp.id) {
-      // Allow HR admin bypass
-      const hrError = await assertAnyPermission(["reimbursement.approve", "settings.manage"]);
-      const isHrBypass = hrError === null && (await assertPermission("settings.manage")) === null;
-      if (!isHrBypass) {
-        return { error: "You are not the assigned approver for this request." };
-      }
+    const res = await advanceReimbursementClaim(recordId, decision, emp.id);
+    if (!res.success) {
+      return { error: res.error || "Failed to process reimbursement claim." };
     }
+    return { success: true };
   } else if (module === "permissions" || module === "permission_request") {
     const { data: permReq } = await supabase
       .from("permission_requests")
@@ -219,30 +209,7 @@ export async function decideApprovalAction(
     }
   }
 
-  // --- Two-stage reimbursement routing (F6 / D11) ---
-  // If a manager approves a pending_manager reimbursement claim, advance it
-  // to pending_hr instead of final approved — the HR stage must still sign off.
-  let effectiveStatus: string = decision;
-  if (module === "reimbursement" || module === "reimbursement_claim") {
-    const { data: claim } = await supabase
-      .from("reimbursement_claims")
-      .select("status, reimbursement_categories!inner(approval_route)")
-      .eq("id", recordId)
-      .single();
-
-    const claimRecord = claim as { status?: string; reimbursement_categories?: { approval_route?: string } } | null;
-    const claimStatus = claimRecord?.status;
-    const approvalRoute = claimRecord?.reimbursement_categories?.approval_route;
-
-    if (
-      decision === "approved" &&
-      claimStatus === "pending_manager" &&
-      approvalRoute === "manager_then_hr"
-    ) {
-      // Manager approved stage 1 → advance to HR stage 2
-      effectiveStatus = "pending_hr";
-    }
-  }
+  const effectiveStatus: string = decision;
 
   const { error } = await supabase
     .from(table)

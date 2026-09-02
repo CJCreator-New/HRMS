@@ -5,15 +5,16 @@
 -- Strictly aligned with FR §1.1, §1.2, & §1.3
 -- ============================================================================
 --
--- DEPENDENCIES: 02_org.sql (employees table, is_current_manager_of())
---               Note: Circular ref with 02_org — PostgreSQL resolves via
---               deferred body validation; both files must be applied together.
+-- DEPENDENCY GRAPH:
+--   00_setup.sql -> 00_auth_helpers.sql -> 01_rbac.sql -> 02_org.sql -> subsequent modules
+--
+-- DEPENDENCIES: 00_setup.sql, 00_auth_helpers.sql (auth_employee_id)
 -- DEPENDENTS: 02_org.sql, 03_settings.sql, 04_work_calendar.sql,
 --             05_attendance.sql, 06_leave.sql, 07_salary.sql, and ALL
 --             subsequent modules (RLS policies call has_permission/auth_employee_id)
 -- Provides: roles, permissions, role_permissions, employee_roles tables,
---           auth_employee_id(), has_permission(), has_any_permission(),
---           acted_as_approver(), block_self_grant_of_approval_permission() trigger========
+--           has_permission(), has_any_permission(), acted_as_approver(),
+--           block_self_grant_of_approval_permission() trigger========
 
 -- 1. Core Tables
 create table roles (

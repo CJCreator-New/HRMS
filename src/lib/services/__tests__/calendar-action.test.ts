@@ -4,12 +4,14 @@ const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
   assertPermission: vi.fn(),
   assertAnyPermission: vi.fn(),
+  getAuthenticatedCaller: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
 vi.mock("@/lib/auth/assertPermission", () => ({
   assertPermission: mocks.assertPermission,
   assertAnyPermission: mocks.assertAnyPermission,
+  getAuthenticatedCaller: mocks.getAuthenticatedCaller,
 }));
 
 import { createFakeSupabase } from "./helpers/fake-supabase";
@@ -65,6 +67,8 @@ describe("selectOptionalHolidayAction", () => {
     mocks.createClient.mockReset();
     mocks.assertAnyPermission.mockReset();
     mocks.assertAnyPermission.mockResolvedValue(null);
+    mocks.getAuthenticatedCaller.mockReset();
+    mocks.getAuthenticatedCaller.mockResolvedValue({ employeeId: "emp-1" });
   });
 
   it("selects an optional holiday below the cap", async () => {

@@ -13,6 +13,7 @@ import { writeAuditLogAction } from "@/lib/actions/audit";
 import { getMonthStartDateString, getMonthEndDateString, getDaysInMonth } from "@/lib/utils/date-utils";
 import { assertIdempotencyKey } from "@/lib/services/idempotency";
 import { toArray } from "@/lib/utils/array";
+import { createHash } from "crypto";
 
 export async function validatePayrollLockAction(periodId: string) {
   const csrfError = await validateRequestOrigin();
@@ -495,4 +496,166 @@ export async function executeBulkPayrollRunAction(periodId: string, idempotencyK
     excludedEmployees,
   };
 }
+
+export interface BankDisbursementFileResult {
+  success: boolean;
+  fileName?: string;
+  fileContent?: string;
+  totalRecords?: number;
+  totalAmount?: number;
+  checksumSha256?: string;
+  error?: string;
+}
+
+export async function generateBankDisbursementFileAction(
+  periodId: string,
+  format: "sbi" | "generic_csv" = "generic_csv"
+): Promise<BankDisbursementFileResult> {
+  const csrfError = await validateRequestOrigin();
+  if (csrfError) return { success: false, error: csrfError.error };
+
+  const permError = await assertPermission("payroll.process");
+  if (permError) return { success: false, error: permError.error };
+
+  const supabase = await createClient();
+
+  // Fetch period
+  const { data: period, error: periodErr } = await supabase
+    .from("payroll_periods")
+    .select("id, year, month, status")
+    .eq("id", periodId)
+    .single();
+
+  if (periodErr || !period) {
+    return { success: false, error: "Payroll period not found." };
+  }
+
+  // Fetch payslips for period with employee bank details
+  const { data: payslips, error: payErr } = await supabase
+    .from("payslips")
+    .select(`
+      id,
+      net_pay,
+      employee_id,
+      employees:employee_id (
+        id,
+        full_name,
+        employee_code
+      ),
+      statutory_profiles:employee_id (
+        bank_account_number,
+        bank_ifsc_code,
+        bank_name
+      )
+    `)
+    .eq("year", period.year)
+    .eq("month", period.month);
+
+  if (payErr) {
+    return { success: false, error: payErr.message };
+  }
+
+  if (!payslips || payslips.length === 0) {
+    return { success: false, error: "No payslips found for the selected payroll period." };
+  }
+
+  let totalAmount = 0;
+  const records: string[] = [];
+
+  const paddedMonth = String(period.month).padStart(2, "0");
+  const narration = `SALARY_${period.year}_${paddedMonth}`;
+
+  if (format === "sbi") {
+    // SBI Bulk Disbursement format:
+    // Account Type, Account No, Amount, Beneficiary Name, Narration, Sender Acct No, IFSC Code
+    records.push("Account_Type,Beneficiary_Account_Number,Amount,Beneficiary_Name,Narration,Sender_Account_Number,IFSC_Code");
+
+    for (const p of payslips) {
+      const netPay = Number(p.net_pay || 0);
+      if (netPay <= 0) continue;
+      totalAmount += netPay;
+
+      const emp = (p.employees as any) || {};
+      const stat = Array.isArray(p.statutory_profiles) ? p.statutory_profiles[0] : (p.statutory_profiles as any) || {};
+      const acct = stat?.bank_account_number || "PENDING";
+      const ifsc = stat?.bank_ifsc_code || "SBIN0000000";
+      const name = (emp?.full_name || emp?.employee_code || "Employee").replace(/,/g, " ");
+
+      records.push(`SAVINGS,${acct},${netPay.toFixed(2)},${name},${narration},SENDER_CORP_ACCT,${ifsc}`);
+    }
+  } else {
+    // Generic standard NEFT/RTGS CSV layout:
+    // Serial No, Employee Code, Beneficiary Name, Account Number, IFSC Code, Bank Name, Net Pay (INR), Narration
+    records.push("Sl_No,Employee_Code,Beneficiary_Name,Account_Number,IFSC_Code,Bank_Name,Amount,Narration");
+
+    let idx = 1;
+    for (const p of payslips) {
+      const netPay = Number(p.net_pay || 0);
+      if (netPay <= 0) continue;
+      totalAmount += netPay;
+
+      const emp = (p.employees as any) || {};
+      const stat = Array.isArray(p.statutory_profiles) ? p.statutory_profiles[0] : (p.statutory_profiles as any) || {};
+      const code = emp?.employee_code || "EMP";
+      const name = (emp?.full_name || code).replace(/,/g, " ");
+      const acct = stat?.bank_account_number || "PENDING";
+      const ifsc = stat?.bank_ifsc_code || "UNKNOWN";
+      const bankName = (stat?.bank_name || "Bank").replace(/,/g, " ");
+
+      records.push(`${idx++},${code},${name},${acct},${ifsc},${bankName},${netPay.toFixed(2)},${narration}`);
+    }
+  }
+
+  const fileContent = records.join("\r\n");
+  const hash = createHash("sha256").update(fileContent).digest("hex");
+  const fileName = `BANK_DISBURSEMENT_${format.toUpperCase()}_${period.year}_${paddedMonth}.csv`;
+
+  await writeAuditLogAction({
+    action: "payroll.bank_file_generated",
+    entityType: "payroll_period",
+    entityId: periodId,
+    details: {
+      format,
+      fileName,
+      totalRecords: records.length - 1,
+      totalAmount,
+      sha256: hash,
+    },
+  });
+
+  return {
+    success: true,
+    fileName,
+    fileContent,
+    totalRecords: records.length - 1,
+    totalAmount,
+    checksumSha256: hash,
+  };
+}
+
+export async function getPayrollPeriodsAction(): Promise<{
+  success: boolean;
+  periods: Array<{
+    id: string;
+    period_name: string;
+    start_date: string;
+    end_date: string;
+    status: string;
+  }>;
+  error?: string;
+}> {
+  const permError = await assertPermission("payroll.view");
+  if (permError) return { success: false, periods: [], error: permError.error };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("payroll_periods")
+    .select("id, period_name, start_date, end_date, status")
+    .order("start_date", { ascending: false });
+
+  if (error) return { success: false, periods: [], error: error.message };
+  return { success: true, periods: data || [] };
+}
+
+
 

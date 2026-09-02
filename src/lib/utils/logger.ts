@@ -60,8 +60,38 @@ function sanitizeMetadata(meta?: Record<string, unknown>): Record<string, unknow
   return safe;
 }
 
+const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
+  debug: 10,
+  info: 20,
+  warn: 30,
+  error: 40,
+};
+
+function getActiveLogLevel(): LogLevel {
+  const envLevel = process.env.LOG_LEVEL?.toLowerCase() as LogLevel;
+  if (envLevel && envLevel in LOG_LEVEL_PRIORITY) return envLevel;
+  return process.env.NODE_ENV === "production" ? "info" : "debug";
+}
+
+function shouldLog(level: LogLevel): boolean {
+  return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[getActiveLogLevel()];
+}
+
 export const logger = {
+  debug(action: string, payload: StructuredLogPayload = {}) {
+    if (!shouldLog("debug")) return;
+    const entry = {
+      level: "debug",
+      timestamp: new Date().toISOString(),
+      action: sanitizeForLog(action),
+      ...payload,
+      metadata: sanitizeMetadata(payload.metadata),
+    };
+    console.debug(JSON.stringify(entry));
+  },
+
   info(action: string, payload: StructuredLogPayload = {}) {
+    if (!shouldLog("info")) return;
     const entry = {
       level: "info",
       timestamp: new Date().toISOString(),
@@ -73,6 +103,7 @@ export const logger = {
   },
 
   warn(action: string, payload: StructuredLogPayload = {}) {
+    if (!shouldLog("warn")) return;
     const entry = {
       level: "warn",
       timestamp: new Date().toISOString(),
@@ -84,6 +115,7 @@ export const logger = {
   },
 
   error(action: string, payload: StructuredLogPayload = {}) {
+    if (!shouldLog("error")) return;
     const entry = {
       level: "error",
       timestamp: new Date().toISOString(),

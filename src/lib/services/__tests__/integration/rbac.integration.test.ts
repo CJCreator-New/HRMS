@@ -212,7 +212,7 @@ describe("RBAC — Self-Approval Guards", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const result = await approveLeaveAction("lr-001", FIXTURES.employee.id);
-    expect(result.error).toContain("Self-approval");
+    expect((result as any).error).toContain("Self-approval");
   });
 
   it("prevents employee from rejecting their own leave", async () => {
@@ -235,7 +235,7 @@ describe("RBAC — Self-Approval Guards", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const result = await rejectLeaveAction("lr-002", FIXTURES.employee.id);
-    expect(result.error).toContain("Self-approval");
+    expect((result as any).error).toContain("Self-approval");
   });
 
   it("prevents employee from approving their own attendance correction", async () => {
@@ -253,7 +253,7 @@ describe("RBAC — Self-Approval Guards", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const result = await approveAttendanceCorrectionAction("corr-001", "approved");
-    expect(result.error).toContain("Self-approval");
+    expect((result as any).error).toContain("Self-approval");
   });
 
   it("prevents employee from approving their own F&F settlement", async () => {
@@ -271,7 +271,7 @@ describe("RBAC — Self-Approval Guards", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const result = await approveFfAction("sep-001");
-    expect(result.error).toContain("Self-approval");
+    expect((result as any).error).toContain("Self-approval");
   });
 });
 
@@ -296,7 +296,7 @@ describe("RBAC — CSRF Protection", () => {
       "full_day",
       "Test"
     );
-    expect(result.error).toBe("Invalid request origin");
+    expect((result as any).error).toBe("Invalid request origin");
   });
 
   it("blocks payroll creation on CSRF failure", async () => {
@@ -348,8 +348,8 @@ describe("RBAC — Rate Limiting", () => {
       "full_day",
       "Test"
     );
-    expect(result.error).toContain("Rate limit exceeded");
-    expect(result.error).toContain("5 minute(s)");
+    expect((result as any).error).toContain("Rate limit exceeded");
+    expect((result as any).error).toContain("5 minute(s)");
   });
 
   it("blocks bulk payroll run when rate limited", async () => {
@@ -362,7 +362,7 @@ describe("RBAC — Rate Limiting", () => {
 
     const { executeBulkPayrollRunAction } = await import("@/lib/actions/payroll");
     const result = await executeBulkPayrollRunAction("pp-2026-08");
-    expect(result.error).toContain("Rate limit exceeded");
+    expect((result as any).error).toContain("Rate limit exceeded");
   });
 });
 
@@ -400,7 +400,7 @@ describe("RBAC — Approver Identity Verification", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const result = await approveLeaveAction("lr-001", "mgr-other");
-    expect(result.error).toContain("not the assigned approver");
+    expect((result as any).error).toContain("not the assigned approver");
   });
 
   it("allows HR admin to approve any request regardless of assignment", async () => {
@@ -452,6 +452,6 @@ describe("RBAC — Approver Identity Verification", () => {
     mocks.createClient.mockReturnValue(fake);
 
     const result = await approveLeaveAction("lr-001", FIXTURES.hrAdmin.id);
-    expect(result.success).toBe(true);
+    expect((result as any).success).toBe(true);
   });
 });

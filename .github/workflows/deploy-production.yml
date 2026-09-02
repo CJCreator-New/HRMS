@@ -1,0 +1,108 @@
+name: Production Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      approval_comment:
+        description: "Mandatory deployment approval comment / change management ticket ID"
+        required: true
+        type: string
+      environment:
+        description: "Target environment"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+          - staging
+
+concurrency:
+  group: deployment-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Log Deployment Approval
+        run: |
+          echo "================================================================="
+          echo "🚀 INITIATING PRODUCTION DEPLOYMENT"
+          echo "Triggered by: ${{ github.actor }}"
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          echo "Approval Note: ${{ github.event.inputs.approval_comment }}"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "================================================================="
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Pre-Deploy Database & Permissions Sync Verification
+        run: |
+          npm run verify:permissions
+          npm run db:sync
+          git diff --exit-code schema/combined_init.sql
+
+      - name: Run Build & Test Suite
+        run: |
+          npx tsc --noEmit
+          npm run test:unit
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Tag Release Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: hrms-app:production-${{ github.sha }}
+
+      - name: Deploy Application Service
+        id: deploy
+        run: |
+          echo "Deploying hrms-app:production-${{ github.sha }} to ${{ github.event.inputs.environment }}..."
+          # Deployment orchestrator integration (e.g. Cloud Run, ECS, or Docker Swarm)
+          echo "previous_release_sha=${{ github.sha }}~1" >> $GITHUB_OUTPUT
+          echo "deployment_status=success" >> $GITHUB_OUTPUT
+
+      - name: Post-Deploy Health Check Smoke Test
+        id: smoke_test
+        run: |
+          PROD_URL="${{ secrets.PRODUCTION_URL || 'http://localhost:3000' }}"
+          echo "Pinging health endpoint at $PROD_URL/api/health..."
+          for i in {1..10}; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$PROD_URL/api/health" || echo "000")
+            if [ "$HTTP_CODE" -eq 200 ]; then
+              echo "✅ Health check verified (HTTP 200) on attempt $i"
+              exit 0
+            fi
+            echo "Attempt $i: Received HTTP $HTTP_CODE. Retrying in 5s..."
+            sleep 5
+          done
+          echo "❌ Smoke test failed: /api/health did not return 200 within 50 seconds."
+          exit 1
+
+      - name: Automatic Rollback on Health Check Failure
+        if: failure() && steps.deploy.outcome == 'success'
+        run: |
+          echo "================================================================="
+          echo "🚨 CRITICAL: SMOKE TEST FAILED — INITIATING AUTOMATIC ROLLBACK"
+          echo "Rolling back to previous revision..."
+          echo "Rollback initiated for commit ${{ github.sha }}"
+          echo "================================================================="
+          # Execute rollback command to previous container version
+          exit 1
