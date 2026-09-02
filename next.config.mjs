@@ -4,7 +4,6 @@ if (process.env.NODE_ENV === "production" && process.env.NEXT_PUBLIC_MOCK_AUTH =
 }
 
 const nextConfig = {
-  output: "standalone",
   reactStrictMode: true,
   async headers() {
     return [
