@@ -83,6 +83,7 @@ describe("loginAction", () => {
   it("rejects explicitly invalid credentials", async () => {
     const fd = new FormData();
     fd.set("email", "invalid@x.com");
+    fd.set("password", "any-password");
     const res = await loginAction(fd);
     expect(res.error).toContain("Invalid login credentials");
   });

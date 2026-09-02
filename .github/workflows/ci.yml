@@ -68,7 +68,7 @@ jobs:
           tags: hrms-app:${{ github.sha }}
 
       - name: Run Trivy Container Vulnerability Scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: hrms-app:${{ github.sha }}
           format: table
@@ -77,7 +77,7 @@ jobs:
           severity: CRITICAL
 
       - name: Generate Software Bill of Materials (SBOM)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: hrms-app:${{ github.sha }}
           format: spdx-json

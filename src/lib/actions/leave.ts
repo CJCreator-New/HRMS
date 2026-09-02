@@ -170,8 +170,10 @@ export async function approveLeaveAction(requestId: string, approverId: string, 
         .single(),
     ]);
 
-    if (alloc && !lt?.allow_negative_balance) {
-      const available = Number(alloc.allocated_days || 0) + Number(alloc.carry_forward_days || 0) - Number(alloc.used_days || 0);
+    if (!lt?.allow_negative_balance) {
+      const available = alloc
+        ? Number(alloc.allocated_days || 0) + Number(alloc.carry_forward_days || 0) - Number(alloc.used_days || 0)
+        : 0;
       if (available < Number(leaveRequest.total_days || 0)) {
         return { error: `Insufficient leave balance: only ${available} day(s) available for this request.` };
       }

@@ -45,7 +45,7 @@ jobs:
       - name: Setup Supabase CLI & Sync Database Schema
         run: |
           npx supabase init --no-create-ignore || true
-          npm run db:sync || true
+          npm run db:sync
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'http://127.0.0.1:54321' }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy_service_role_key' }}

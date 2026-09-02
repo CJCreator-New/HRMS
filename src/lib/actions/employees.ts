@@ -9,6 +9,7 @@ import { writeAuditLogAction } from "@/lib/actions/audit";
 import { validateRequestOrigin, sanitizeInput } from "@/lib/security";
 import type { BatchCommitResult } from "@/lib/batch-import/types";
 import { getTodayDateStringIST, previousDateString } from "@/lib/utils/date-utils";
+import { logger } from "@/lib/utils/logger";
 
 // ── Effective-dated assignment helper ─────────────────────────────────
 
@@ -141,7 +142,12 @@ export async function createEmployeeAction(formData: FormData) {
       try {
         const parsed = JSON.parse(String(rolesRaw));
         if (Array.isArray(parsed) && parsed.length > 0) roleCodes = parsed;
-      } catch {}
+      } catch (err) {
+        logger.warn("employees.parse_roles_warning", {
+          message: "Could not parse dynamic roles JSON, falling back to default employee role",
+          metadata: { error: err instanceof Error ? err.message : String(err) },
+        });
+      }
     }
 
     const { data: rolesData } = await supabase

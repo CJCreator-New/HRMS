@@ -1,4 +1,4 @@
-import { sanitizeForLog } from "./sanitize-log";
+import { sanitizeForLog, maskEmail } from "./sanitize-log";
 
 export type LogLevel = "info" | "warn" | "error" | "debug";
 
@@ -51,6 +51,8 @@ function sanitizeMetadata(meta?: Record<string, unknown>): Record<string, unknow
   for (const [k, v] of Object.entries(meta)) {
     if (REDACTED_KEYS.has(k.toLowerCase())) {
       safe[k] = "[REDACTED]";
+    } else if (k.toLowerCase() === "email" || k.toLowerCase().endsWith("_email")) {
+      safe[k] = maskEmail(v);
     } else if (typeof v === "string") {
       safe[k] = sanitizeForLog(v);
     } else {

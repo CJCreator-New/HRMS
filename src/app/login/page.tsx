@@ -252,7 +252,11 @@ export default function LoginPage() {
     await executeLogin(email, password, rememberMe);
   };
 
-  const handleSelectDemoUser = (demoEmail: string, roleName: string, demoPass: string = "TempAdminPass123!") => {
+  const showDemoAccounts =
+    process.env.NEXT_PUBLIC_MOCK_AUTH === "true" ||
+    process.env.NODE_ENV !== "production";
+
+  const handleSelectDemoUser = (demoEmail: string, roleName: string, demoPass: string = "Password123!") => {
     setEmail(demoEmail);
     setPassword(demoPass);
     setSelectedDemoEmail(demoEmail);
@@ -264,7 +268,7 @@ export default function LoginPage() {
     toast(`Filled ${roleName} credentials`, "info");
   };
 
-  const handleInstantDemoLogin = async (demoEmail: string, demoPass: string = "TempAdminPass123!") => {
+  const handleInstantDemoLogin = async (demoEmail: string, demoPass: string = "Password123!") => {
     setEmail(demoEmail);
     setPassword(demoPass);
     setSelectedDemoEmail(demoEmail);
@@ -469,8 +473,8 @@ export default function LoginPage() {
         ) : (
           /* Standard Login Flow */
           <>
-            {/* Authentication Handshake Progress & Status Indicator */}
-            {(loading || authStage !== "idle") && (
+            {/* Authentication Handshake Progress & Status Indicator (dev/mock only) */}
+            {showDemoAccounts && (loading || authStage !== "idle") && (
               <div
                 data-testid="auth-handshake-status"
                 className={`p-3.5 rounded-xl border transition-all space-y-2.5 text-xs ${
@@ -774,70 +778,72 @@ export default function LoginPage() {
               </button>
             </form>
 
-            <div className="p-3.5 bg-surface-muted rounded-xl border border-line text-[11px] space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="font-bold text-ink">Demo Accounts (Click to Fill & Sign In):</p>
-                <span className="text-[10px] text-ink-muted bg-white px-2 py-0.5 rounded border border-line">
-                  Click card to fill • ⚡ for 1-Click
-                </span>
-              </div>
-              <div className="space-y-1.5 pt-1">
-                {DEMO_PERSONAS.map((persona) => {
-                  const isSelected = selectedDemoEmail === persona.email;
-                  return (
-                    <div
-                      key={persona.email}
-                      data-testid={persona.testId}
-                      className={`flex items-center justify-between p-2 rounded-lg border transition-all ${
-                        isSelected
-                          ? "bg-primary-50/70 border-primary-500 ring-1 ring-primary-500"
-                          : "bg-white border-line hover:border-primary-300 hover:bg-primary-50/30"
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => handleSelectDemoUser(persona.email, persona.role)}
-                        className="flex-1 text-left flex items-center gap-2 cursor-pointer"
+            {showDemoAccounts && (
+              <div className="p-3.5 bg-surface-muted rounded-xl border border-line text-[11px] space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="font-bold text-ink">Demo Accounts (Click to Fill & Sign In):</p>
+                  <span className="text-[10px] text-ink-muted bg-white px-2 py-0.5 rounded border border-line">
+                    Click card to fill • ⚡ for 1-Click
+                  </span>
+                </div>
+                <div className="space-y-1.5 pt-1">
+                  {DEMO_PERSONAS.map((persona) => {
+                    const isSelected = selectedDemoEmail === persona.email;
+                    return (
+                      <div
+                        key={persona.email}
+                        data-testid={persona.testId}
+                        className={`flex items-center justify-between p-2 rounded-lg border transition-all ${
+                          isSelected
+                            ? "bg-primary-50/70 border-primary-500 ring-1 ring-primary-500"
+                            : "bg-white border-line hover:border-primary-300 hover:bg-primary-50/30"
+                        }`}
                       >
-                        <span className="text-base">{persona.icon}</span>
-                        <div className="leading-tight">
-                          <div className="font-semibold text-ink flex items-center gap-1.5">
-                            <span>{persona.role}</span>
-                            {isSelected && (
-                              <CheckCircle2 className="w-3.5 h-3.5 text-primary-600 inline" aria-hidden="true" />
-                            )}
-                          </div>
-                          <div className="text-[10px] text-ink-muted">{persona.email}</div>
-                        </div>
-                      </button>
-
-                      <div className="flex items-center gap-1 shrink-0 ml-2">
                         <button
                           type="button"
                           onClick={() => handleSelectDemoUser(persona.email, persona.role)}
-                          className="px-2 py-1 bg-surface-muted hover:bg-surface border border-line rounded text-[10px] font-medium text-ink transition cursor-pointer"
-                          title="Fill form inputs"
+                          className="flex-1 text-left flex items-center gap-2 cursor-pointer"
                         >
-                          Fill
+                          <span className="text-base">{persona.icon}</span>
+                          <div className="leading-tight">
+                            <div className="font-semibold text-ink flex items-center gap-1.5">
+                              <span>{persona.role}</span>
+                              {isSelected && (
+                                <CheckCircle2 className="w-3.5 h-3.5 text-primary-600 inline" aria-hidden="true" />
+                              )}
+                            </div>
+                            <div className="text-[10px] text-ink-muted">{persona.email}</div>
+                          </div>
                         </button>
-                        <button
-                          type="button"
-                          disabled={loading}
-                          onClick={() => handleInstantDemoLogin(persona.email)}
-                          className="px-2 py-1 bg-primary-600 hover:bg-primary-700 text-white rounded text-[10px] font-bold transition shadow-2xs cursor-pointer flex items-center gap-1 disabled:opacity-50"
-                          title="Instantly sign in"
-                        >
-                          ⚡ Sign In
-                        </button>
+
+                        <div className="flex items-center gap-1 shrink-0 ml-2">
+                          <button
+                            type="button"
+                            onClick={() => handleSelectDemoUser(persona.email, persona.role)}
+                            className="px-2 py-1 bg-surface-muted hover:bg-surface border border-line rounded text-[10px] font-medium text-ink transition cursor-pointer"
+                            title="Fill form inputs"
+                          >
+                            Fill
+                          </button>
+                          <button
+                            type="button"
+                            disabled={loading}
+                            onClick={() => handleInstantDemoLogin(persona.email)}
+                            className="px-2 py-1 bg-primary-600 hover:bg-primary-700 text-white rounded text-[10px] font-bold transition shadow-2xs cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                            title="Instantly sign in"
+                          >
+                            ⚡ Sign In
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-ink-muted pt-1 text-center">
+                  Demo Password: <code className="text-primary-600 font-mono font-semibold">Password123!</code>
+                </p>
               </div>
-              <p className="text-[10px] text-ink-muted pt-1 text-center">
-                Demo Password: <code className="text-primary-600 font-mono font-semibold">TempAdminPass123!</code>
-              </p>
-            </div>
+            )}
           </>
         )}
       </div>

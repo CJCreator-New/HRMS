@@ -193,6 +193,30 @@ describe("approveReimbursementClaimAction — Two-Stage Routing (D11 / FR §11.3
     expect(updates[0].payload.approved_amount).toBe(7500);
   });
 
+  it("blocks the same approver from approving both Stage 1 and Stage 2 (segregation of duties)", async () => {
+    const { fake } = fakeApproveWith({
+      claim: {
+        id: "claim-sod-violation",
+        employee_id: "emp-requester",
+        status: "pending_hr",
+        approver_id: "emp-decider", // Previously approved Stage 1 by emp-decider
+        requested_amount: 8000,
+        reimbursement_categories: {
+          id: "cat-1",
+          approval_route: "manager_then_hr",
+        },
+      },
+      deciderEmployee: { id: "emp-decider" }, // Same user attempting Stage 2
+    });
+    mocks.createClient.mockReturnValue(fake);
+
+    const { approveReimbursementClaimAction } = await import("@/lib/actions/reimbursements");
+    const res = await approveReimbursementClaimAction("claim-sod-violation", "approved", 8000);
+
+    expect(res.success).toBe(false);
+    expect(res.error).toContain("Segregation of duties violation");
+  });
+
   it("approves single-stage route directly to approved", async () => {
     const { fake, updates } = fakeApproveWith({
       claim: {

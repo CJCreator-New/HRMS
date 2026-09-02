@@ -165,6 +165,10 @@ export async function advanceReimbursementClaim(
       if (!isHr) {
         return { success: false, error: "Two-stage approval violation: HR authority required for Stage 2 approval." };
       }
+      // Segregation of duties: The same approver cannot approve both Stage 1 and Stage 2
+      if (claim.approver_id && deciderId && claim.approver_id === deciderId) {
+        return { success: false, error: "Segregation of duties violation: The same approver cannot approve both Stage 1 and Stage 2." };
+      }
       nextStatus = "approved";
     } else {
       return { success: false, error: "Two-stage approval violation: Invalid current state for manager_then_hr route." };

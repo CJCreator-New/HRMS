@@ -119,13 +119,15 @@ export function Header({
           </div>
 
           <button
-            onClick={() => {
+            onClick={async () => {
               if (typeof document !== "undefined") {
                 document.cookie = "sb-access-token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT";
               }
               try {
-                logoutAction();
-              } catch {}
+                await logoutAction();
+              } catch (err) {
+                console.error("[Header] Logout action error:", err);
+              }
               window.location.href = "/login";
             }}
             aria-label="Sign out of system"

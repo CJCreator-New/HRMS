@@ -75,8 +75,51 @@ jobs:
         id: deploy
         run: |
           echo "Deploying hrms-app:production-${{ github.sha }} to ${{ github.event.inputs.environment }}..."
-          # Deployment orchestrator integration (e.g. Cloud Run, ECS, or Docker Swarm)
-          echo "previous_release_sha=${{ github.sha }}~1" >> $GITHUB_OUTPUT
+          TARGET_ENV="${{ github.event.inputs.environment }}"
+          IMAGE_TAG="hrms-app:production-${{ github.sha }}"
+
+          # Record previous running container / revision for rollback
+          PREV_CONTAINER=$(docker ps -q -f name=hrms-app-${TARGET_ENV} || echo "")
+          echo "previous_container=${PREV_CONTAINER}" >> $GITHUB_OUTPUT
+          echo "target_env=${TARGET_ENV}" >> $GITHUB_OUTPUT
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+
+          if [ -n "${{ secrets.GCP_PROJECT_ID }}" ] && [ -n "${{ secrets.GCP_SA_KEY }}" ]; then
+            echo "Deploying to Google Cloud Run..."
+            echo "${{ secrets.GCP_SA_KEY }}" | gcloud auth activate-service-account --key-file=-
+            gcloud config set project ${{ secrets.GCP_PROJECT_ID }}
+            gcloud auth configure-docker --quiet
+            GCR_IMAGE="gcr.io/${{ secrets.GCP_PROJECT_ID }}/hrms-app:${{ github.sha }}"
+            docker tag ${IMAGE_TAG} ${GCR_IMAGE}
+            docker push ${GCR_IMAGE}
+            gcloud run deploy hrms-${TARGET_ENV} \
+              --image ${GCR_IMAGE} \
+              --region ${{ secrets.GCP_REGION || 'us-central1' }} \
+              --platform managed \
+              --set-env-vars NODE_ENV=production,NEXT_PUBLIC_MOCK_AUTH=false \
+              --allow-unauthenticated \
+              --tag release-${{ github.sha }}
+            echo "deployment_target=cloudrun" >> $GITHUB_OUTPUT
+          else
+            echo "Deploying via Docker Container Runtime on host..."
+            # Stop existing instance if running
+            if [ -n "$PREV_CONTAINER" ]; then
+              docker stop hrms-app-${TARGET_ENV} || true
+              docker rename hrms-app-${TARGET_ENV} hrms-app-${TARGET_ENV}-backup || true
+            fi
+            # Start new container version
+            docker run -d \
+              --name hrms-app-${TARGET_ENV} \
+              --restart unless-stopped \
+              -p 3000:3000 \
+              -e NODE_ENV=production \
+              -e NEXT_PUBLIC_MOCK_AUTH=false \
+              -e NEXT_PUBLIC_SUPABASE_URL="${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}" \
+              -e NEXT_PUBLIC_SUPABASE_ANON_KEY="${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}" \
+              -e SUPABASE_SERVICE_ROLE_KEY="${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+              ${IMAGE_TAG}
+            echo "deployment_target=docker" >> $GITHUB_OUTPUT
+          fi
           echo "deployment_status=success" >> $GITHUB_OUTPUT
 
       - name: Post-Deploy Health Check Smoke Test
@@ -84,7 +127,7 @@ jobs:
         run: |
           PROD_URL="${{ secrets.PRODUCTION_URL || 'http://localhost:3000' }}"
           echo "Pinging health endpoint at $PROD_URL/api/health..."
-          for i in {1..10}; do
+          for i in {1..12}; do
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$PROD_URL/api/health" || echo "000")
             if [ "$HTTP_CODE" -eq 200 ]; then
               echo "✅ Health check verified (HTTP 200) on attempt $i"
@@ -93,7 +136,7 @@ jobs:
             echo "Attempt $i: Received HTTP $HTTP_CODE. Retrying in 5s..."
             sleep 5
           done
-          echo "❌ Smoke test failed: /api/health did not return 200 within 50 seconds."
+          echo "❌ Smoke test failed: /api/health did not return 200 within 60 seconds."
           exit 1
 
       - name: Automatic Rollback on Health Check Failure
@@ -101,8 +144,28 @@ jobs:
         run: |
           echo "================================================================="
           echo "🚨 CRITICAL: SMOKE TEST FAILED — INITIATING AUTOMATIC ROLLBACK"
-          echo "Rolling back to previous revision..."
-          echo "Rollback initiated for commit ${{ github.sha }}"
+          echo "Environment: ${{ steps.deploy.outputs.target_env }}"
+          echo "Failed Image: ${{ steps.deploy.outputs.image_tag }}"
           echo "================================================================="
-          # Execute rollback command to previous container version
+          TARGET_ENV="${{ steps.deploy.outputs.target_env }}"
+
+          if [ "${{ steps.deploy.outputs.deployment_target }}" = "cloudrun" ]; then
+            echo "Rolling back Cloud Run service traffic to previous revision..."
+            gcloud run services update-traffic hrms-${TARGET_ENV} \
+              --region ${{ secrets.GCP_REGION || 'us-central1' }} \
+              --to-latest=false
+            echo "✅ Cloud Run rollback completed."
+          else
+            echo "Restoring previous Docker container version..."
+            docker stop hrms-app-${TARGET_ENV} || true
+            docker rm -f hrms-app-${TARGET_ENV} || true
+            if docker inspect hrms-app-${TARGET_ENV}-backup > /dev/null 2>&1; then
+              docker rename hrms-app-${TARGET_ENV}-backup hrms-app-${TARGET_ENV}
+              docker start hrms-app-${TARGET_ENV}
+              echo "✅ Restored previous Docker container hrms-app-${TARGET_ENV}."
+            else
+              echo "⚠️ No previous backup container found to restore."
+            fi
+          fi
+          echo "Automatic rollback procedure executed."
           exit 1

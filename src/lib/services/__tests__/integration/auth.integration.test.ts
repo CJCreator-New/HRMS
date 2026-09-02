@@ -13,7 +13,7 @@
  * auth actions, RBAC assertions, cookie management, and database writes.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { registerModuleMocks, resetAllMocks, mocks, createTestContext, FIXTURES } from "./setup";
 
 registerModuleMocks();
@@ -26,12 +26,23 @@ vi.mock("next/navigation", () => ({
 import { loginAction, logoutAction, changePasswordAction } from "@/lib/actions/auth";
 
 describe("Auth Integration — Login Flow", () => {
+  const origMockAuth = process.env.NEXT_PUBLIC_MOCK_AUTH;
+
   beforeEach(() => {
+    process.env.NEXT_PUBLIC_MOCK_AUTH = "true";
     resetAllMocks();
     // Mock cookie helpers for mock auth mode
     mocks.signMockCookieValue.mockResolvedValue("signed-mock-token");
     mocks.validateMockCookieValue.mockResolvedValue(null);
     mocks.resolveMockSession.mockResolvedValue(null);
+  });
+
+  afterEach(() => {
+    if (origMockAuth !== undefined) {
+      process.env.NEXT_PUBLIC_MOCK_AUTH = origMockAuth;
+    } else {
+      delete process.env.NEXT_PUBLIC_MOCK_AUTH;
+    }
   });
 
   it("rejects login with missing email or password", async () => {
@@ -72,8 +83,6 @@ describe("Auth Integration — Login Flow", () => {
 
     const result = await loginAction(fd);
     expect(result.success).toBe(true);
-
-    delete process.env.NEXT_PUBLIC_MOCK_AUTH;
   });
 
   it("applies rememberMe cookie maxAge of 30 days", async () => {

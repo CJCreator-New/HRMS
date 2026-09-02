@@ -56,59 +56,63 @@ export const mocks = {
   resolveMockSession: vi.fn(),
 };
 
-// ── Module mocks ───────────────────────────────────────────────────
+// ── Module mocks (declared at module top level for Vitest compatibility) ─────
 
-export function registerModuleMocks() {
-  vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
-  vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mocks.createAdminClient }));
-  vi.mock("@/lib/auth/assertPermission", () => ({
-    assertPermission: mocks.assertPermission,
-    assertAnyPermission: mocks.assertAnyPermission,
-    assertCallerIdentity: mocks.assertCallerIdentity,
-    getAuthenticatedCaller: mocks.getAuthenticatedCaller,
-  }));
-  vi.mock("@/lib/services/leave-routing", () => ({
-    resolveLeaveApprover: mocks.resolveLeaveApprover,
-  }));
-  vi.mock("@/lib/services/leave-engine", () => ({
-    computeCompOffExpiryDate: mocks.computeCompOffExpiryDate,
-  }));
-  vi.mock("@/lib/services/payroll-engine", () => ({
-    filterPayrollEligibleEmployees: mocks.filterPayrollEligibleEmployees,
-    resolveMonthlyCtc: mocks.resolveMonthlyCtc,
-    computeEmployeePayrollRun: mocks.computeEmployeePayrollRun,
-  }));
-  vi.mock("@/lib/services/offboarding-engine", () => ({
-    computeLastWorkingDay: mocks.computeLastWorkingDay,
-    resolveFfApprovalOutcome: mocks.resolveFfApprovalOutcome,
-  }));
-  vi.mock("@/lib/actions/notifications", () => ({
-    createNotificationAction: mocks.createNotificationAction,
-  }));
-  vi.mock("@/lib/actions/audit", () => ({
-    writeAuditLogAction: mocks.writeAuditLogAction,
-  }));
-  vi.mock("@/lib/security", () => ({
-    validateRequestOrigin: mocks.validateRequestOrigin,
-    sanitizeInput: mocks.sanitizeInput,
-  }));
-  vi.mock("@/lib/auth/rate-limit", () => ({
-    checkActionRateLimit: mocks.checkActionRateLimit,
-    checkLoginRateLimit: mocks.checkLoginRateLimit,
-    resetLoginRateLimit: mocks.resetLoginRateLimit,
-  }));
-  vi.mock("@/lib/services/idempotency", () => ({
-    assertIdempotencyKey: mocks.assertIdempotencyKey,
-  }));
-  vi.mock("next/headers", () => ({
-    cookies: mocks.cookies,
-  }));
-  vi.mock("@/lib/auth/mock-cookie", () => ({
-    signMockCookieValue: mocks.signMockCookieValue,
-    validateMockCookieValue: mocks.validateMockCookieValue,
-    resolveMockSession: mocks.resolveMockSession,
-  }));
-}
+vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
+vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mocks.createAdminClient }));
+vi.mock("@/lib/auth/assertPermission", () => ({
+  assertPermission: mocks.assertPermission,
+  assertAnyPermission: mocks.assertAnyPermission,
+  assertCallerIdentity: mocks.assertCallerIdentity,
+  getAuthenticatedCaller: mocks.getAuthenticatedCaller,
+}));
+vi.mock("@/lib/services/leave-routing", () => ({
+  resolveLeaveApprover: mocks.resolveLeaveApprover,
+}));
+vi.mock("@/lib/services/leave-engine", () => ({
+  computeCompOffExpiryDate: mocks.computeCompOffExpiryDate,
+}));
+vi.mock("@/lib/services/payroll-engine", () => ({
+  filterPayrollEligibleEmployees: mocks.filterPayrollEligibleEmployees,
+  resolveMonthlyCtc: mocks.resolveMonthlyCtc,
+  computeEmployeePayrollRun: mocks.computeEmployeePayrollRun,
+}));
+vi.mock("@/lib/services/offboarding-engine", () => ({
+  computeLastWorkingDay: mocks.computeLastWorkingDay,
+  resolveFfApprovalOutcome: mocks.resolveFfApprovalOutcome,
+}));
+vi.mock("@/lib/actions/notifications", () => ({
+  createNotificationAction: mocks.createNotificationAction,
+}));
+vi.mock("@/lib/actions/audit", () => ({
+  writeAuditLogAction: mocks.writeAuditLogAction,
+}));
+vi.mock("@/lib/security", () => ({
+  validateRequestOrigin: mocks.validateRequestOrigin,
+  sanitizeInput: mocks.sanitizeInput,
+}));
+vi.mock("@/lib/auth/rate-limit", () => ({
+  checkActionRateLimit: mocks.checkActionRateLimit,
+  checkLoginRateLimit: mocks.checkLoginRateLimit,
+  resetLoginRateLimit: mocks.resetLoginRateLimit,
+}));
+vi.mock("@/lib/services/idempotency", () => ({
+  assertIdempotencyKey: mocks.assertIdempotencyKey,
+}));
+vi.mock("next/headers", () => ({
+  cookies: mocks.cookies,
+}));
+vi.mock("@/lib/auth/mock-cookie", () => ({
+  signMockCookieValue: mocks.signMockCookieValue,
+  validateMockCookieValue: mocks.validateMockCookieValue,
+  resolveMockSession: mocks.resolveMockSession,
+}));
+
+/**
+ * Retained for backwards-compatibility with test suites importing registerModuleMocks.
+ * Mocks are now hoisted at the module top level.
+ */
+export function registerModuleMocks() {}
 
 // ── Default mock behaviors ─────────────────────────────────────────
 
@@ -126,6 +130,8 @@ export function resetAllMocks() {
   mocks.getAuthenticatedCaller.mockResolvedValue(null);
   mocks.validateRequestOrigin.mockResolvedValue(null);
   mocks.checkActionRateLimit.mockResolvedValue({ allowed: true, retryAfterMs: 0 });
+  mocks.checkLoginRateLimit.mockResolvedValue({ allowed: true, retryAfterMs: 0 });
+  mocks.resetLoginRateLimit.mockResolvedValue(undefined);
   mocks.assertIdempotencyKey.mockResolvedValue({ isDuplicate: false, error: undefined });
   mocks.createNotificationAction.mockResolvedValue({ success: true });
   mocks.writeAuditLogAction.mockResolvedValue({ success: true });

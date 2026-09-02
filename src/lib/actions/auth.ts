@@ -454,13 +454,23 @@ export async function logoutAction() {
     if (typeof cookieStore?.delete === "function") {
       cookieStore.delete("sb-access-token");
     }
-  } catch {}
+  } catch (err) {
+    logger.warn("auth.logout_cookie_error", {
+      message: "Could not clear auth cookie during logout",
+      metadata: { error: err instanceof Error ? err.message : String(err) },
+    });
+  }
   const isMockAuth = process.env.NEXT_PUBLIC_MOCK_AUTH === "true";
   if (!isMockAuth) {
     try {
       const supabase = await createClient();
       await supabase.auth.signOut();
-    } catch {}
+    } catch (err) {
+      logger.warn("auth.logout_supabase_error", {
+        message: "Supabase signOut failed during logout",
+        metadata: { error: err instanceof Error ? err.message : String(err) },
+      });
+    }
   }
   redirect("/login");
   return { success: true };

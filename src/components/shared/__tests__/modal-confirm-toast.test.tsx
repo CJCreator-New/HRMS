@@ -206,6 +206,15 @@ describe("ToastProvider / useToast", () => {
   });
 
   it("throws when useToast is used outside the provider", () => {
-    expect(() => render(<ToastHarness />)).toThrow("useToast must be used within a ToastProvider");
+    const originalError = console.error;
+    console.error = () => {};
+    const errorHandler = (e: Event) => e.preventDefault();
+    window.addEventListener("error", errorHandler);
+    try {
+      expect(() => render(<ToastHarness />)).toThrow("useToast must be used within a ToastProvider");
+    } finally {
+      window.removeEventListener("error", errorHandler);
+      console.error = originalError;
+    }
   });
 });

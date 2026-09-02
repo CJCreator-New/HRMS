@@ -41,6 +41,9 @@ function bufferToHex(buffer: ArrayBuffer): string {
  * Format: `base64(email):expiryTimestamp:hmacSignature`
  */
 export async function signMockCookieValue(email: string): Promise<string> {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("SECURITY ERROR: Mock authentication cookie generation is forbidden in production.");
+  }
   const expiry = Date.now() + MOCK_COOKIE_EXPIRY_MS;
   const data = `${email}:${expiry}`;
   const key = await getHmacKey();
@@ -60,6 +63,7 @@ export async function validateMockCookieValue(
 ): Promise<string | null> {
   try {
     if (!cookieValue) return null;
+    if (process.env.NODE_ENV === "production") return null;
 
     // Unit test bypass (only in test environment)
     if (process.env.NODE_ENV === "test" && cookieValue.includes("@") && !cookieValue.includes(":")) {
