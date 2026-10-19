@@ -7,6 +7,7 @@ import { RoleCode } from "@/lib/types";
 import { Shield, CheckCircle2, LogOut, Menu } from "lucide-react";
 import { GlobalSearchPalette } from "@/components/shared/GlobalSearchPalette";
 import { NotificationsBell } from "@/components/shared/NotificationsBell";
+import { ThemeToggle } from "@/components/shared/ThemeToggle";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { logoutAction } from "@/lib/actions/auth";
 import { getRouteConfig } from "@/lib/nav/routeConfig";
@@ -101,6 +102,9 @@ export function Header({
 
         {/* Notifications Bell */}
         <NotificationsBell />
+
+        {/* Theme Toggle */}
+        <ThemeToggle />
 
         {/* User Avatar & Logout */}
         <div className="flex items-center gap-2 pl-2 sm:pl-3 border-l border-line">

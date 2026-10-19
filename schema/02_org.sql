@@ -150,11 +150,13 @@ create view employee_current_manager as
     and (effective_to is null or effective_to > current_date);
 
 create or replace function is_current_manager_of(p_manager_id uuid, p_employee_id uuid)
-returns boolean language sql stable as $$
+returns boolean language sql stable security definer
+set search_path = public, pg_temp
+as $$
   select exists (
     select 1 from employee_current_manager
     where employee_id = p_employee_id and manager_id = p_manager_id
-  )
+  );
 $$;
 
 -- 6. Separation & Offboarding Workflow (§2.2, §2.3)

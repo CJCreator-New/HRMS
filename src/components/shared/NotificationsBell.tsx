@@ -9,6 +9,7 @@ import {
   markAllNotificationsReadAction,
 } from "@/lib/actions/notifications";
 import { notificationActionUrl } from "@/lib/services/notifications";
+import { createClient } from "@/lib/supabase/client";
 
 interface Notification {
   id: string;
@@ -43,7 +44,6 @@ export function NotificationsBell() {
     const isMock = process.env.NEXT_PUBLIC_MOCK_AUTH === "true";
     if (!isMock) {
       try {
-        const { createClient } = require("@/lib/supabase/client");
         const supabase = createClient();
         channel = supabase
           .channel("inbox_notifications_realtime")
@@ -64,7 +64,6 @@ export function NotificationsBell() {
       clearInterval(interval);
       if (channel) {
         try {
-          const { createClient } = require("@/lib/supabase/client");
           const supabase = createClient();
           supabase.removeChannel(channel);
         } catch {

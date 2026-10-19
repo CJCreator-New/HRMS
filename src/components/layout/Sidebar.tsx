@@ -25,6 +25,7 @@ import {
   Upload,
   Cpu,
   FileText,
+  Laptop,
   X,
 } from "lucide-react";
 
@@ -39,6 +40,7 @@ const ICON_MAP: Record<string, React.ReactNode> = {
   "/employees/import": <Upload className="w-4 h-4" aria-hidden="true" />,
   "/departments": <Building2 className="w-4 h-4" aria-hidden="true" />,
   "/offboarding": <LogOut className="w-4 h-4" aria-hidden="true" />,
+  "/assets": <Laptop className="w-4 h-4" aria-hidden="true" />,
   "/salary": <DollarSign className="w-4 h-4" aria-hidden="true" />,
   "/payroll": <FileSpreadsheet className="w-4 h-4" aria-hidden="true" />,
   "/statutory": <Scale className="w-4 h-4" aria-hidden="true" />,
@@ -93,7 +95,7 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
           </div>
           <div>
             <h1 className="font-bold text-sm text-sidebar-bright tracking-tight">Enterprise HRMS</h1>
-            <p className="text-[10px] text-sidebar-muted">v2.7 Operations</p>
+            <p className="text-[10px] text-sidebar-muted">v2.8 Enterprise</p>
           </div>
         </div>
 

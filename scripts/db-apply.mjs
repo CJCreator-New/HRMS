@@ -38,6 +38,7 @@ const MODULAR_FILES = [
   "24_payroll_dirty_triggers.sql",
   "25_atomic_assignment_mutations.sql",
   "26_production_hardening_and_indexes.sql",
+  "27_assets.sql",
   "bootstrap/01_system_admin.sql",
 ];
 

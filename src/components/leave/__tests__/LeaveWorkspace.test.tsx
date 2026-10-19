@@ -120,4 +120,19 @@ describe("LeaveWorkspace Component", () => {
 
     expect(screen.getByRole("button", { name: /withdraw/i })).toBeDefined();
   });
+
+  it("renders selectable leave types even when initialAllocations is empty", () => {
+    render(
+      <LeaveWorkspace
+        initialAllocations={[]}
+        initialRequests={[]}
+        employeeId="emp-1"
+        canApprove={false}
+        isHrAdmin={false}
+      />
+    );
+    const select = screen.getByTestId("leave-type-select") as HTMLSelectElement;
+    expect(select.children.length).toBeGreaterThan(0);
+    expect(screen.getByRole("option", { name: /Casual Leave/i })).toBeDefined();
+  });
 });

@@ -149,8 +149,21 @@ npm run db:sync
 | Area | Key Files |
 |---|---|
 | **Server Actions** | `src/lib/actions/*.ts` |
-| **RBAC Authorization** | `src/lib/auth/assertPermission.ts`, `src/lib/auth/permissions-map.ts`, `src/lib/auth/roles.ts` |
+| **RBAC Authorization** | `src/lib/auth/assertPermission.ts`, `src/lib/auth/permissions-map.ts`, `src/lib/auth/usePermission.ts` |
 | **Mock Auth & Session** | `src/lib/auth/mock-cookie.ts`, `src/lib/actions/auth.ts`, `src/middleware.ts` |
 | **Database Schema** | `schema/*.sql`, `scripts/db-apply.mjs`, `scripts/seed-mock-data.mjs` |
 | **Business Services** | `src/lib/services/payroll-engine.ts`, `src/lib/services/statutory-engine.ts` |
 | **UI Components** | `src/components/layout/AppShell.tsx`, `src/components/layout/Sidebar.tsx`, `src/components/shared/` |
+
+---
+
+## 🧭 7. Agent Workspace (start here for multi-step work)
+
+- **Index:** [`docs/agents/README.md`](docs/agents/README.md) — reading order, agent roster, current gate status.
+- **Verified baseline and open risks:** [`docs/agents/01-E2E-PRODUCT-REVIEW.md`](docs/agents/01-E2E-PRODUCT-REVIEW.md). Read the findings before changing audit, auth, or server-action code.
+- **Where things live:** [`docs/agents/02-MODULE-MAP.md`](docs/agents/02-MODULE-MAP.md).
+- **What to work on:** [`docs/agents/03-BACKLOG.md`](docs/agents/03-BACKLOG.md) (ticket IDs `B-xx`; cite them in commits).
+- **How to finish a change:** [`docs/agents/04-DEV-WORKFLOW.md`](docs/agents/04-DEV-WORKFLOW.md) §2 (Definition of Done).
+- **Subagents:** `.claude/agents/hrms-*.md` — see [`docs/agents/05-AGENT-ROSTER.md`](docs/agents/05-AGENT-ROSTER.md).
+
+Counts quoted in older documents (schema files, action modules, tests) are stale; use the commands in `04-DEV-WORKFLOW.md` and the drift register in `01-E2E-PRODUCT-REVIEW.md` §5.

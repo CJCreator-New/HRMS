@@ -70,8 +70,9 @@ class FakeQueryBuilder {
     private respond: QueryResponder
   ) {}
 
-  select(cols?: string) {
+  select(cols?: string, opts?: { count?: string; head?: boolean }) {
     this.state.selectCols = cols;
+    if (opts?.head) this.state.head = true;
     return this;
   }
   eq(col: string, val: unknown) {

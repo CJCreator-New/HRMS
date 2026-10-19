@@ -151,27 +151,31 @@ create table employee_roles (
 );
 
 -- Helper: Map auth.uid() to employees.id
--- Raises an exception if no employee record exists for the authenticated user.
--- This prevents silent access denial — callers get a clear error instead of
--- empty data. The login flow auto-provisions employee records on first login.
+-- Bypasses RLS to avoid infinite recursion when evaluated inside employees_read policy
 create or replace function auth_employee_id() returns uuid
-language plpgsql stable as $$
+language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
 declare
   v_emp_id uuid;
+  v_auth_uid uuid;
 begin
-  select id into v_emp_id from employees where auth_user_id = auth.uid() limit 1;
-
-  if v_emp_id is null then
-    raise exception 'No employee record found for authenticated user (auth.uid=%). Contact your administrator to complete onboarding.', auth.uid();
+  v_auth_uid := auth.uid();
+  if v_auth_uid is null then
+    return null;
   end if;
 
+  select id into v_emp_id from employees where auth_user_id = v_auth_uid limit 1;
   return v_emp_id;
 end;
 $$;
 
 -- 2. Permission Evaluation Function (§1.2 Scope Matching)
+-- Bypasses RLS on employee_roles and permissions to avoid recursion during policy evaluation
 create or replace function has_permission(perm_code text, target_employee_id uuid default null)
-returns boolean language plpgsql stable as $$
+returns boolean language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
 declare
   acting_id uuid := auth_employee_id();
   has_all boolean;
@@ -186,7 +190,7 @@ begin
   if exists (
     select 1 from employee_roles er
     join roles r on r.id = er.role_id
-    where er.employee_id = acting_id AND r.code = 'system_admin'
+    where er.employee_id = acting_id and r.code = 'system_admin'
   ) then
     return true;
   end if;
@@ -249,7 +253,9 @@ $$;
 -- a manager can view a specific employee's data), use has_permission() with a
 -- target_employee_id instead.
 create or replace function has_any_permission(perm_codes text[])
-returns boolean language plpgsql stable as $$
+returns boolean language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
 declare
   acting_id uuid := auth_employee_id();
 begin
@@ -268,7 +274,9 @@ $$;
 
 -- Historical approval access check (§1.3)
 create or replace function acted_as_approver(acting_id uuid, approval_stage_table text, record_id uuid)
-returns boolean language plpgsql stable as $$
+returns boolean language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
 begin
   if acting_id is null then return false; end if;
 
@@ -671,11 +679,13 @@ create view employee_current_manager as
     and (effective_to is null or effective_to > current_date);
 
 create or replace function is_current_manager_of(p_manager_id uuid, p_employee_id uuid)
-returns boolean language sql stable as $$
+returns boolean language sql stable security definer
+set search_path = public, pg_temp
+as $$
   select exists (
     select 1 from employee_current_manager
     where employee_id = p_employee_id and manager_id = p_manager_id
-  )
+  );
 $$;
 
 -- 6. Separation & Offboarding Workflow (§2.2, §2.3)
@@ -1311,7 +1321,9 @@ create or replace function calculate_leave_days(
   p_start_date date,
   p_end_date date,
   p_duration_type text default 'full_day' -- 'full_day' | 'first_half' | 'second_half'
-) returns numeric language plpgsql stable as $$
+) returns numeric language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
 declare
   v_sandwich boolean;
   v_curr date := p_start_date;
@@ -1346,7 +1358,9 @@ $$;
 
 -- 9. Overlapping Leave Request Validation Trigger
 create or replace function prevent_overlapping_leave_requests() returns trigger
-language plpgsql as $$
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
 begin
   if exists (
     select 1 from leave_requests
@@ -1367,7 +1381,9 @@ create trigger trg_prevent_leave_overlap
 
 -- 10. Leave Pending-Balance Reservation & Ledger Lifecycle Trigger (§4.2)
 create or replace function process_leave_request_state_change() returns trigger
-language plpgsql as $$
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
 declare
   v_year integer := extract(year from new.start_date);
   v_alloc_id uuid;
@@ -1491,12 +1507,28 @@ create policy allocations_write on leave_allocations for all
 create policy requests_read on leave_requests for select
   using (employee_id = auth_employee_id() or has_permission('leave.view', employee_id));
 create policy requests_insert on leave_requests for insert
-  with check (employee_id = auth_employee_id());
+  with check (
+    employee_id = auth_employee_id()
+    or has_permission('leave.apply.self')
+    or has_permission('leave.approve.hr')
+    or has_permission('leave.approve.manager')
+  );
 create policy requests_update on leave_requests for update
-  using (has_permission('leave.approve.hr') or has_permission('leave.approve.manager') or is_current_manager_of(auth_employee_id(), employee_id));
+  using (
+    has_permission('leave.approve.hr')
+    or has_permission('leave.approve.manager')
+    or is_current_manager_of(auth_employee_id(), employee_id)
+    or (employee_id = auth_employee_id() and status in ('pending', 'withdrawn', 'cancelled'))
+  );
 
 create policy ledger_read on leave_ledger for select
   using (employee_id = auth_employee_id() or has_permission('leave.view', employee_id));
+create policy ledger_insert on leave_ledger for insert
+  with check (
+    employee_id = auth_employee_id()
+    or has_permission('leave.apply.self')
+    or has_permission('leave.approve.hr')
+  );
 
 create policy permissions_read on permission_requests for select
   using (employee_id = auth_employee_id() or has_permission('leave.view', employee_id));
@@ -1506,7 +1538,11 @@ create policy permissions_insert on permission_requests for insert
 create policy comp_off_read on comp_off_grants for select
   using (employee_id = auth_employee_id() or has_permission('leave.view', employee_id));
 create policy comp_off_insert on comp_off_grants for insert
-  with check (employee_id = auth_employee_id());
+  with check (
+    employee_id = auth_employee_id()
+    or has_permission('leave.apply.self')
+    or has_permission('leave.approve.hr')
+  );
 
 -- Performance Indexes
 create index if not exists idx_leave_requests_emp_status_dates
@@ -3051,7 +3087,9 @@ returns table (
   title text,
   subtitle text,
   action_url text
-) language plpgsql stable as $$
+) language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
 declare
   v_cleaned text := replace(replace(replace(trim(p_query), '\', '\\'), '%', '\%'), '_', '\_');
   v_q text := '%' || v_cleaned || '%';
@@ -3097,6 +3135,34 @@ begin
   from payroll_periods pp
   where (pp.year::text || '-' || lpad(pp.month::text, 2, '0')) ilike v_q
     and has_permission('payroll.view')
+  limit 5;
+
+  -- 4. Search Reimbursements
+  return query
+  select
+    'reimbursement'::text as entity_type,
+    rc.id as entity_id,
+    ('Claim: ' || coalesce(rc.vendor_name, cat.name, 'Expense')) as title,
+    ('₹' || rc.requested_amount::text || ' (' || rc.status::text || ')') as subtitle,
+    '/reimbursements'::text as action_url
+  from reimbursement_claims rc
+  left join reimbursement_categories cat on cat.id = rc.category_id
+  where (coalesce(rc.vendor_name, '') ilike v_q or coalesce(cat.name, '') ilike v_q)
+    and (rc.employee_id = v_actor_id or has_permission('reimbursement.approve.manager') or has_permission('reimbursement.approve.hr'))
+  limit 5;
+
+  -- 5. Search Separations
+  return query
+  select
+    'separation'::text as entity_type,
+    sr.id as entity_id,
+    ('Separation: ' || e.full_name) as title,
+    ('Status: ' || sr.status::text || ' (LWD: ' || coalesce(sr.last_working_day::text, 'TBD') || ')') as subtitle,
+    '/offboarding'::text as action_url
+  from separation_records sr
+  join employees e on e.id = sr.employee_id
+  where (e.full_name ilike v_q or coalesce(sr.reason, '') ilike v_q)
+    and (sr.employee_id = v_actor_id or has_permission('offboarding.manage'))
   limit 5;
 end;
 $$;
@@ -4223,6 +4289,103 @@ alter table public.employees
 
 
 -- END FILE: 26_production_hardening_and_indexes.sql
+
+-- BEGIN FILE: 27_assets.sql
+-- ============================================================================
+-- HRMS v2.8 — Module 27: Asset Management & Offboarding Hardware Clearance
+-- Database Target: PostgreSQL / Supabase
+-- Target File: schema/27_assets.sql
+-- Strictly aligned with FR §5.4 & Enterprise Compliance Standards
+-- ============================================================================
+--
+-- DEPENDENCIES: 01_rbac.sql (has_permission, auth_employee_id),
+--               02_org.sql (employees table),
+--               13_ff_settlement.sql (ff_clearances)
+-- Provides:
+--   1. asset_status enum ('available', 'allocated', 'maintenance', 'decommissioned', 'lost')
+--   2. company_assets table (hardware & peripheral inventory master)
+--   3. employee_asset_assignments table (assignment lifecycle and condition tracking)
+--   4. pending_unreturned_assets_count() helper for separation clearance enforcement
+--   5. Partial performance indexes & RLS policies
+-- ============================================================================
+
+-- 1. Asset Status Enum
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'asset_status') then
+    create type asset_status as enum ('available', 'allocated', 'maintenance', 'decommissioned', 'lost');
+  end if;
+end $$;
+
+-- 2. Company Assets Inventory Master
+create table if not exists company_assets (
+  id             uuid primary key default gen_random_uuid(),
+  asset_tag      text not null unique,
+  name           text not null,
+  category       text not null default 'laptop', -- 'laptop' | 'monitor' | 'mobile' | 'access_card' | 'peripheral' | 'other'
+  serial_number  text,
+  model          text,
+  status         asset_status not null default 'available',
+  purchase_date  date,
+  cost           numeric(12,2) not null default 0.00,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+
+-- 3. Employee Asset Assignments Lifecycle
+create table if not exists employee_asset_assignments (
+  id              uuid primary key default gen_random_uuid(),
+  employee_id     uuid not null references employees(id) on delete cascade,
+  asset_id        uuid not null references company_assets(id) on delete cascade,
+  assigned_at     timestamptz not null default now(),
+  returned_at     timestamptz,
+  condition_notes text,
+  created_at      timestamptz not null default now()
+);
+
+-- 4. Helper: Count Unreturned Active Assets for Separation Clearance
+create or replace function pending_unreturned_assets_count(p_employee_id uuid)
+returns integer language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select count(*)::integer
+  from employee_asset_assignments
+  where employee_id = p_employee_id and returned_at is null;
+$$;
+
+-- 5. Row Level Security
+alter table company_assets enable row level security;
+alter table employee_asset_assignments enable row level security;
+
+-- Read policies
+create policy assets_read on company_assets for select
+  using (has_permission('settings.manage') or has_permission('employee.view.all') or has_permission('offboarding.manage'));
+
+create policy asset_assignments_read on employee_asset_assignments for select
+  using (
+    employee_id = auth_employee_id()
+    or has_permission('settings.manage')
+    or has_permission('employee.view.all')
+    or has_permission('offboarding.manage')
+  );
+
+-- Write policies
+create policy assets_write on company_assets for all
+  using (has_permission('settings.manage') or has_permission('offboarding.manage'))
+  with check (has_permission('settings.manage') or has_permission('offboarding.manage'));
+
+create policy asset_assignments_write on employee_asset_assignments for all
+  using (has_permission('settings.manage') or has_permission('offboarding.manage'))
+  with check (has_permission('settings.manage') or has_permission('offboarding.manage'));
+
+-- 6. Performance Indexes
+create index if not exists idx_assets_status on company_assets (status);
+create index if not exists idx_assets_tag on company_assets (asset_tag);
+create index if not exists idx_asset_assignments_emp_active on employee_asset_assignments (employee_id) where returned_at is null;
+create index if not exists idx_asset_assignments_asset on employee_asset_assignments (asset_id);
+
+
+-- END FILE: 27_assets.sql
 
 -- BEGIN FILE: bootstrap/01_system_admin.sql
 -- ============================================================================

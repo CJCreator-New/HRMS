@@ -148,6 +148,22 @@ export async function toggleClearanceAction(
   const ff = await getFfSettlementId(supabase, separationId);
   if (!ff) return { error: "No F&F settlement found for this separation." };
 
+  // GAP-10: IT clearance guardrail — verify all hardware/assets have been returned
+  if (department === "IT" && isCleared) {
+    const { count, data: unreturnedAssets, error: assetErr } = await supabase
+      .from("employee_asset_assignments")
+      .select("id", { count: "exact" })
+      .eq("employee_id", ff.employee_id)
+      .is("returned_at", null);
+
+    const pendingCount = count ?? (Array.isArray(unreturnedAssets) ? unreturnedAssets.length : 0);
+    if (!assetErr && pendingCount > 0) {
+      return {
+        error: `Cannot grant IT clearance: Employee has ${pendingCount} unreturned company asset(s). Record asset return before clearance.`,
+      };
+    }
+  }
+
   const { data: { user } } = await supabase.auth.getUser();
   let clearedById: string | null = null;
   if (user) {

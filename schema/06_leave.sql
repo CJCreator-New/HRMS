@@ -133,7 +133,9 @@ create or replace function calculate_leave_days(
   p_start_date date,
   p_end_date date,
   p_duration_type text default 'full_day' -- 'full_day' | 'first_half' | 'second_half'
-) returns numeric language plpgsql stable as $$
+) returns numeric language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
 declare
   v_sandwich boolean;
   v_curr date := p_start_date;
@@ -168,7 +170,9 @@ $$;
 
 -- 9. Overlapping Leave Request Validation Trigger
 create or replace function prevent_overlapping_leave_requests() returns trigger
-language plpgsql as $$
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
 begin
   if exists (
     select 1 from leave_requests
@@ -189,7 +193,9 @@ create trigger trg_prevent_leave_overlap
 
 -- 10. Leave Pending-Balance Reservation & Ledger Lifecycle Trigger (§4.2)
 create or replace function process_leave_request_state_change() returns trigger
-language plpgsql as $$
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
 declare
   v_year integer := extract(year from new.start_date);
   v_alloc_id uuid;
@@ -313,12 +319,28 @@ create policy allocations_write on leave_allocations for all
 create policy requests_read on leave_requests for select
   using (employee_id = auth_employee_id() or has_permission('leave.view', employee_id));
 create policy requests_insert on leave_requests for insert
-  with check (employee_id = auth_employee_id());
+  with check (
+    employee_id = auth_employee_id()
+    or has_permission('leave.apply.self')
+    or has_permission('leave.approve.hr')
+    or has_permission('leave.approve.manager')
+  );
 create policy requests_update on leave_requests for update
-  using (has_permission('leave.approve.hr') or has_permission('leave.approve.manager') or is_current_manager_of(auth_employee_id(), employee_id));
+  using (
+    has_permission('leave.approve.hr')
+    or has_permission('leave.approve.manager')
+    or is_current_manager_of(auth_employee_id(), employee_id)
+    or (employee_id = auth_employee_id() and status in ('pending', 'withdrawn', 'cancelled'))
+  );
 
 create policy ledger_read on leave_ledger for select
   using (employee_id = auth_employee_id() or has_permission('leave.view', employee_id));
+create policy ledger_insert on leave_ledger for insert
+  with check (
+    employee_id = auth_employee_id()
+    or has_permission('leave.apply.self')
+    or has_permission('leave.approve.hr')
+  );
 
 create policy permissions_read on permission_requests for select
   using (employee_id = auth_employee_id() or has_permission('leave.view', employee_id));
@@ -328,7 +350,11 @@ create policy permissions_insert on permission_requests for insert
 create policy comp_off_read on comp_off_grants for select
   using (employee_id = auth_employee_id() or has_permission('leave.view', employee_id));
 create policy comp_off_insert on comp_off_grants for insert
-  with check (employee_id = auth_employee_id());
+  with check (
+    employee_id = auth_employee_id()
+    or has_permission('leave.apply.self')
+    or has_permission('leave.approve.hr')
+  );
 
 -- Performance Indexes
 create index if not exists idx_leave_requests_emp_status_dates

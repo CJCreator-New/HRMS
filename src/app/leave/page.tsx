@@ -1,12 +1,12 @@
 import { Briefcase } from "lucide-react";
 import { safeGetCurrentUserRoles } from "@/lib/auth/current-user";
 import { permissionsForRoles, hasPermission } from "@/lib/auth/permissions-map";
-import { getLeaveDashboard, type LeaveDashboardData } from "@/lib/services/leave";
+import { getLeaveDashboard, type LeaveDashboardData, BASELINE_LEAVE_ALLOCATIONS } from "@/lib/services/leave";
 import { ReadOnlyBanner } from "@/components/shared/ReadOnlyBanner";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { LeaveWorkspace } from "@/components/leave/LeaveWorkspace";
 
-const EMPTY_DATA: LeaveDashboardData = { employeeId: null, allocations: [], requests: [] };
+const EMPTY_DATA: LeaveDashboardData = { employeeId: null, allocations: BASELINE_LEAVE_ALLOCATIONS, requests: [] };
 
 /**
  * Leave Ledger & Policy Engine (Slice 3: RSC conversion + token styling).

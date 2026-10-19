@@ -358,24 +358,14 @@ npm audit --audit-level=high
 
 ---
 
-## Open Questions (Resolved)
-
-1. **Q1: Mock auth mode** → Keep for prototyping, add CI enforcement for `false`, add dev banner
-2. **Q2: Email provider** → Supabase Auth email / Edge Functions (built-in SMTP). External provider only if volume exceeds Supabase limits or custom templates are required
-3. **Q3: Feature flags** → Self-hosted Unleash in Docker Compose
-4. **Q4: Visual regression** → Playwright native (`toHaveScreenshot`)
-5. **Q5: Schema circular dependency** → `schema/00_auth_helpers.sql` approach
-
----
-
 ## Finalized Implementation Decisions
 
-1. **Q1: Mock auth mode** → Keep for prototyping, add CI enforcement for `false`, add dev banner
+1. **Q1: Mock auth mode** → Keep for prototyping, add CI enforcement for `NEXT_PUBLIC_MOCK_AUTH=false`, add dev banner
 2. **Q2: Email provider** → Supabase Auth email / Edge Functions (built-in SMTP). External provider only if volume exceeds Supabase limits or custom templates are required
 3. **Q3: Feature flags** → Self-hosted Unleash in Docker Compose
 4. **Q4: Visual regression** → Playwright native (`toHaveScreenshot`)
 5. **Q5: Schema circular dependency** → `schema/00_auth_helpers.sql` approach
-6. **Q6: Phase 0 PR structure** → Single "security hardening" PR for atomicity, but use feature flags for P0-3 to allow revert
+6. **Q6: Phase 0 PR structure** → Single "security hardening" PR for atomicity; feature flags for P0-3 to allow revert
 7. **Q7: Bank file formats** → Generic CSV + SBI format first; HDFC/ICICI as follow-up
 8. **Q8: Redis caching backend** → Upstash (already in deps) for managed simplicity; self-hosted Redis only if data sovereignty requires
 9. **Q9: Account lockout policy** → Time-based lockout (15 minutes) with admin override

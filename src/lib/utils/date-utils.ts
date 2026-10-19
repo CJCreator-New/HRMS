@@ -5,14 +5,14 @@
  * Prevents UTC ISO serialization drift on calendar and payroll dates.
  */
 
-export const BUSINESS_TIMEZONE = "Asia/Kolkata";
+export const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || "Asia/Kolkata";
 
 /**
- * Returns today's calendar date as YYYY-MM-DD in Asia/Kolkata timezone.
+ * Returns today's calendar date as YYYY-MM-DD in the configured business timezone (default: Asia/Kolkata).
  */
-export function getTodayDateStringIST(date: Date = new Date()): string {
+export function getTodayDateStringIST(date: Date = new Date(), timezone: string = BUSINESS_TIMEZONE): string {
   const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: BUSINESS_TIMEZONE,
+    timeZone: timezone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

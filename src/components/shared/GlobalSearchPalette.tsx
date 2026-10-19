@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Search, X, User, FileText, Calendar, ChevronRight } from "lucide-react";
+import { Search, X, User, FileText, Calendar, ChevronRight, Building, Receipt, UserMinus } from "lucide-react";
 import { globalSearchAction } from "@/lib/actions/data";
 import { useRouter } from "next/navigation";
 
@@ -73,7 +73,10 @@ export function GlobalSearchPalette() {
 
   const typeIcon = (type: string) => {
     if (type === "employee") return <User className="w-4 h-4 text-blue-500" aria-hidden="true" />;
+    if (type === "department") return <Building className="w-4 h-4 text-amber-500" aria-hidden="true" />;
     if (type === "leave") return <Calendar className="w-4 h-4 text-purple-500" aria-hidden="true" />;
+    if (type === "reimbursement") return <Receipt className="w-4 h-4 text-emerald-500" aria-hidden="true" />;
+    if (type === "separation") return <UserMinus className="w-4 h-4 text-rose-500" aria-hidden="true" />;
     return <FileText className="w-4 h-4 text-ink-muted" aria-hidden="true" />;
   };
 

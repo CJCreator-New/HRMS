@@ -20,7 +20,9 @@ returns table (
   title text,
   subtitle text,
   action_url text
-) language plpgsql stable as $$
+) language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
 declare
   v_cleaned text := replace(replace(replace(trim(p_query), '\', '\\'), '%', '\%'), '_', '\_');
   v_q text := '%' || v_cleaned || '%';
@@ -66,6 +68,34 @@ begin
   from payroll_periods pp
   where (pp.year::text || '-' || lpad(pp.month::text, 2, '0')) ilike v_q
     and has_permission('payroll.view')
+  limit 5;
+
+  -- 4. Search Reimbursements
+  return query
+  select
+    'reimbursement'::text as entity_type,
+    rc.id as entity_id,
+    ('Claim: ' || coalesce(rc.vendor_name, cat.name, 'Expense')) as title,
+    ('₹' || rc.requested_amount::text || ' (' || rc.status::text || ')') as subtitle,
+    '/reimbursements'::text as action_url
+  from reimbursement_claims rc
+  left join reimbursement_categories cat on cat.id = rc.category_id
+  where (coalesce(rc.vendor_name, '') ilike v_q or coalesce(cat.name, '') ilike v_q)
+    and (rc.employee_id = v_actor_id or has_permission('reimbursement.approve.manager') or has_permission('reimbursement.approve.hr'))
+  limit 5;
+
+  -- 5. Search Separations
+  return query
+  select
+    'separation'::text as entity_type,
+    sr.id as entity_id,
+    ('Separation: ' || e.full_name) as title,
+    ('Status: ' || sr.status::text || ' (LWD: ' || coalesce(sr.last_working_day::text, 'TBD') || ')') as subtitle,
+    '/offboarding'::text as action_url
+  from separation_records sr
+  join employees e on e.id = sr.employee_id
+  where (e.full_name ilike v_q or coalesce(sr.reason, '') ilike v_q)
+    and (sr.employee_id = v_actor_id or has_permission('offboarding.manage'))
   limit 5;
 end;
 $$;

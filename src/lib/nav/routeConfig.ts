@@ -113,6 +113,13 @@ export const ROUTE_CONFIG: RouteGate[] = [
     description: "Resignations, clearance boards, and F&F settlements.",
   },
   {
+    path: "/assets",
+    name: "Asset Inventory",
+    category: "PEOPLE",
+    requiredPermissions: ["employee.view.all", "offboarding.manage", "settings.manage"],
+    description: "Hardware inventory tracking, employee assignments, and clearance verification.",
+  },
+  {
     path: "/salary",
     name: "Salary Structures",
     category: "PAY",

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Briefcase, Calendar, Plus, Eye, EyeOff } from "lucide-react";
@@ -52,6 +52,17 @@ export function LeaveWorkspace({
 
   // Apply Form State
   const [leaveTypeCode, setLeaveTypeCode] = useState(initialAllocations[0]?.type_code || "CL");
+
+  useEffect(() => {
+    setAllocations(initialAllocations);
+    if (initialAllocations.length > 0 && !initialAllocations.some((a) => a.type_code === leaveTypeCode)) {
+      setLeaveTypeCode(initialAllocations[0].type_code);
+    }
+  }, [initialAllocations, leaveTypeCode]);
+
+  useEffect(() => {
+    setRequests(initialRequests);
+  }, [initialRequests]);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [durationType, setDurationType] = useState<"full_day" | "first_half" | "second_half">("full_day");
@@ -67,7 +78,11 @@ export function LeaveWorkspace({
 
   const handleApplyLeave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!reason.trim() || !employeeId) return;
+    if (!employeeId) {
+      toast("Error: No employee record linked to current session. Please contact an administrator.", "error");
+      return;
+    }
+    if (!reason.trim()) return;
 
     // Check overlap locally first
     const isOverlap = requests.some(
@@ -232,11 +247,21 @@ export function LeaveWorkspace({
                   onChange={(e) => setLeaveTypeCode(e.target.value)}
                   className="w-full border border-line-strong rounded-lg px-3 py-2 bg-surface focus:ring-2 focus:ring-primary-300 focus:outline-none"
                 >
-                  {allocations.map((a) => (
-                    <option key={a.type_code} value={a.type_code}>
-                      {a.type_name} (Balance: {a.balance})
-                    </option>
-                  ))}
+                  {allocations.length > 0 ? (
+                    allocations.map((a) => (
+                      <option key={a.type_code} value={a.type_code}>
+                        {a.type_name} ({a.type_code === "LOP" ? "Loss of Pay" : `Balance: ${a.balance}`})
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="CL">Casual Leave (Balance: 0)</option>
+                      <option value="SL">Sick Leave (Balance: 0)</option>
+                      <option value="EL">Earned Leave (Balance: 0)</option>
+                      <option value="COMP_OFF">Compensatory Off (Balance: 0)</option>
+                      <option value="LOP">Loss of Pay (Loss of Pay)</option>
+                    </>
+                  )}
                 </select>
               </div>
 

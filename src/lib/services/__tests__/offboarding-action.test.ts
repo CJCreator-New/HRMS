@@ -198,4 +198,24 @@ describe("toggleClearanceAction", () => {
       cleared_by: "emp-9",
     });
   });
+
+  it("blocks IT clearance when employee has unreturned company assets", async () => {
+    const fake = createFakeSupabase({
+      user: { id: "auth-1" },
+      respond: (state) => {
+        if (state.table === "ff_settlement_records" && state.method === "select") {
+          return { data: { id: "ff-1", employee_id: "emp-1" }, error: null };
+        }
+        if (state.table === "employee_asset_assignments" && state.method === "select") {
+          return { data: [{ id: "assign-1" }, { id: "assign-2" }], count: 2, error: null };
+        }
+        return { data: null, error: null };
+      },
+    });
+    mocks.createClient.mockReturnValue(fake);
+
+    const res: any = await toggleClearanceAction("sep-1", "IT", true);
+    expect(res.error).toContain("Cannot grant IT clearance");
+    expect(res.error).toContain("2 unreturned company asset(s)");
+  });
 });

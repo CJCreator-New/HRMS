@@ -4,10 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 -H 0.0.0.0",
-    "build": "next build",
+    "build": "node scripts/build-prod.mjs",
     "lint": "eslint src",
     "verify:permissions": "node scripts/verify-permissions-sync.mjs",
     "db:sync": "node scripts/db-apply.mjs",
+    "db:migrate": "node scripts/db-migrate.mjs",
     "seed:mock": "node scripts/seed-mock-data.mjs",
     "test:unit": "vitest run",
     "test:coverage": "vitest run --coverage",

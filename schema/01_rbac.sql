@@ -49,27 +49,31 @@ create table employee_roles (
 );
 
 -- Helper: Map auth.uid() to employees.id
--- Raises an exception if no employee record exists for the authenticated user.
--- This prevents silent access denial — callers get a clear error instead of
--- empty data. The login flow auto-provisions employee records on first login.
+-- Bypasses RLS to avoid infinite recursion when evaluated inside employees_read policy
 create or replace function auth_employee_id() returns uuid
-language plpgsql stable as $$
+language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
 declare
   v_emp_id uuid;
+  v_auth_uid uuid;
 begin
-  select id into v_emp_id from employees where auth_user_id = auth.uid() limit 1;
-
-  if v_emp_id is null then
-    raise exception 'No employee record found for authenticated user (auth.uid=%). Contact your administrator to complete onboarding.', auth.uid();
+  v_auth_uid := auth.uid();
+  if v_auth_uid is null then
+    return null;
   end if;
 
+  select id into v_emp_id from employees where auth_user_id = v_auth_uid limit 1;
   return v_emp_id;
 end;
 $$;
 
 -- 2. Permission Evaluation Function (§1.2 Scope Matching)
+-- Bypasses RLS on employee_roles and permissions to avoid recursion during policy evaluation
 create or replace function has_permission(perm_code text, target_employee_id uuid default null)
-returns boolean language plpgsql stable as $$
+returns boolean language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
 declare
   acting_id uuid := auth_employee_id();
   has_all boolean;
@@ -84,7 +88,7 @@ begin
   if exists (
     select 1 from employee_roles er
     join roles r on r.id = er.role_id
-    where er.employee_id = acting_id AND r.code = 'system_admin'
+    where er.employee_id = acting_id and r.code = 'system_admin'
   ) then
     return true;
   end if;
@@ -147,7 +151,9 @@ $$;
 -- a manager can view a specific employee's data), use has_permission() with a
 -- target_employee_id instead.
 create or replace function has_any_permission(perm_codes text[])
-returns boolean language plpgsql stable as $$
+returns boolean language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
 declare
   acting_id uuid := auth_employee_id();
 begin
@@ -166,7 +172,9 @@ $$;
 
 -- Historical approval access check (§1.3)
 create or replace function acted_as_approver(acting_id uuid, approval_stage_table text, record_id uuid)
-returns boolean language plpgsql stable as $$
+returns boolean language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
 begin
   if acting_id is null then return false; end if;
 
