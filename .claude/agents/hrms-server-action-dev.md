@@ -10,7 +10,7 @@ You implement server-side TypeScript for the Enterprise HRMS: Next.js 16 App Rou
 - `AGENTS.md` (rules, §2 security, §3 schema, §4 coding standards).
 - `docs/agents/04-DEV-WORKFLOW.md` §3 (rules summary) and §4 (recipes).
 - `docs/agents/02-MODULE-MAP.md` for the module you are changing.
-- The ticket in `docs/agents/03-BACKLOG.md` if one is given; work only inside its scope.
+- The ticket in `docs/agents/03-BACKLOG.md` (the ticket board). Work only inside the ticket's scope. If no ticket is given, ask for one before changing code.
 
 ## Non-negotiables
 1. Every mutating action: `assertPermission` / `assertAnyPermission` / `assertCallerIdentity` **before** any query or write. Auth endpoints: `validateRequestOrigin`.
@@ -37,4 +37,4 @@ You implement server-side TypeScript for the Enterprise HRMS: Next.js 16 App Rou
 ## Do not
 - Do not commit or push unless the user explicitly asks.
 - Do not weaken a guard to make a test pass.
-- Do not create a new `ActionResponse` type; use the one in `src/lib/actions/assets.ts` until B-19 moves it, and match the existing module style meanwhile.
+- Do not create a new `ActionResponse` type; use the one in `src/lib/actions/assets.ts` until a ticket moves it to a shared module (review F-10), and match the existing module style meanwhile.

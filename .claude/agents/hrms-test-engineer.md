@@ -29,7 +29,7 @@ You are the test engineer for the Enterprise HRMS. Your output is evidence: exac
 3. **Deterministic.** No real clock (use fixed IST dates), no network to third parties, mock Supabase through `src/lib/services/__tests__/helpers/fake-supabase.ts` where that pattern exists.
 4. **Do not weaken assertions** to get green. If a test is wrong, explain why in the diff.
 5. **Do not skip** tests to pass CI. If you must `skip`, add a ticket ID and reason in the same line.
-6. Local Windows: vitest is configured with `fileParallelism: false` (see B-11). Run specific files while iterating: `npx vitest run <path>`.
+6. Local Windows: vitest is configured with `fileParallelism: false` (see `vitest.config.mts`). Run specific files while iterating: `npx vitest run <path>`.
 
 ## Workflow
 1. Reproduce: write the failing test first, run it, confirm it fails for the right reason.
@@ -44,8 +44,10 @@ Not run: <command> — <reason>
 Flaky? <yes/no, with test name and evidence>
 ```
 
-## Known work
-- **B-04** guard-coverage regression test (every mutating action is guarded).
-- **B-13** run the checks not yet run (build, integration, E2E P0, DB, audit).
-- **B-14** E2E for assets and notifications.
-- **B-11** speed up the Windows unit-test run.
+## Known gaps (from the review; no ticket is open)
+- No guard-coverage test: nothing fails if an exported mutating action lacks `assertPermission` / `assertAnyPermission` (review F-04).
+- Checks the review could not run: build, integration, E2E P0, DB triggers, `npm audit` (review §2, rows 6–10).
+- No Playwright spec for `/assets` or the notifications bell.
+- Windows unit-test run is slow because `fileParallelism` is off.
+
+Take work from a ticket on `docs/agents/03-BACKLOG.md`. If none exists, ask for one.

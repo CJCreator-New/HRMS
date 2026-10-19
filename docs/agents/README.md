@@ -9,7 +9,7 @@ Start here if you are an AI agent or a developer about to change this repository
 | 0 | [`AGENTS.md`](../../AGENTS.md) | Non-negotiable rules (security, schema, coding) | Always, first |
 | 1 | [`01-E2E-PRODUCT-REVIEW.md`](./01-E2E-PRODUCT-REVIEW.md) | What was verified, what is broken or risky, doc drift | Before planning any change |
 | 2 | [`02-MODULE-MAP.md`](./02-MODULE-MAP.md) | Route → action → service → schema → test for each module | Before editing a module |
-| 3 | [`03-BACKLOG.md`](./03-BACKLOG.md) | Ticketed work (B-01…B-19) with definition of done | Choosing what to work on |
+| 3 | [`03-BACKLOG.md`](./03-BACKLOG.md) | Ticket board (cleared 2026-10-19; new tickets go here) and the ticket format | Choosing what to work on |
 | 4 | [`04-DEV-WORKFLOW.md`](./04-DEV-WORKFLOW.md) | Commands, Definition of Done, recipes, troubleshooting | Before and after every change |
 | 5 | [`05-AGENT-ROSTER.md`](./05-AGENT-ROSTER.md) | Which agent does what, the pipeline, handoff template | Delegating work |
 
@@ -39,9 +39,11 @@ Defined in [`.claude/agents/`](../../.claude/agents/):
 | Integration, DB trigger, Playwright E2E, build | ⚪ not run (need live DB / browsers) |
 
 **Top three things to know before touching code:**
-1. The audit trail is probably not being written for user-scoped changes (review **F-01**, **F-02**; backlog **B-01**, **B-02**). Confirm on a live database first.
-2. The working tree is dirty (55 entries, including the deletion of `.wayfinder/`). Get a decision on it (**B-06**) before large changes.
-3. Older documents disagree with the code on counts and file names. Trust the commands in `04-DEV-WORKFLOW.md`, not the numbers in the older docs (**B-12**).
+1. The audit trail is probably not being written for user-scoped changes (review **F-01**, **F-02**). This is still open and unverified. Confirm on a live database before relying on audit output.
+2. The working tree is clean. All review changes are committed in `9118089` and pushed to `origin/main`. The `.wayfinder/` deletion is intended.
+3. Older documents disagree with the code on counts and file names. Trust the commands in `04-DEV-WORKFLOW.md`, not the numbers in the older docs (drift register **D-1…D-15**, still to fix).
+
+The ticket board is empty. Add tickets to `03-BACKLOG.md` before starting development work.
 
 ## Maintenance
 

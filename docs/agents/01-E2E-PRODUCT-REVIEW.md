@@ -2,7 +2,7 @@
 
 **Review date:** 2026-10-19
 **Branch:** `main` (last commit `84e19dd`, 2026-09-02)
-**Working tree:** dirty — 23 modified, 25 deleted, 7 untracked entries (see §6). Findings below describe the working tree as it was reviewed.
+**Working tree:** dirty at review time (see §6). **Resolved 2026-10-19:** all changes committed in `9118089` and pushed to `origin/main`; the `.wayfinder/` deletion was confirmed intended. Findings below describe the tree as it was reviewed.
 **Scope:** build/verification tooling, RBAC and server-action authorization, database schema and RLS, audit trail, domain module coverage, test health, and documentation accuracy.
 
 This document is the factual baseline for agent work. Every claim has either a command result or a `file:line` reference. Where something could not be verified in this environment it is labelled **NOT VERIFIED**.
@@ -60,16 +60,14 @@ Severity: **Critical** = data integrity or authorization failure in production p
   - Result: an `UPDATE` on `employees` from an authenticated user-scoped client should fail when the trigger tries to insert the audit row, unless the statement runs through a `SECURITY DEFINER` function or the service role.
 - **Why it matters:** `unlockEmployeeAccountAction` (`src/lib/actions/auth.ts:374–397`) updates `employees` through the user-scoped client. If the analysis holds, that action and similar direct updates fail for users, and the audit trail that the product advertises is not written.
 - **Status:** **NOT VERIFIED.** No live database was available. Confirm with `npm run test:db` or a manual `UPDATE employees` as an authenticated user.
-- **Fix direction:** make `log_entity_audit()` `security definer` with a pinned `search_path`, and/or add a restrictive INSERT policy. Add a regression test to `scripts/test-db-triggers.mjs`. See backlog **B-01**.
-
+- **Fix direction:** make `log_entity_audit()` `security definer` with a pinned `search_path`, and/or add a restrictive INSERT policy. Add a regression test to `scripts/test-db-triggers.mjs`.
 ### F-02 — High: `writeAuditLogAction` is an unauthorized write surface and its failures are ignored
 - **Evidence:**
   - `src/lib/actions/audit.ts:80–124` — exported server action with **no `assertPermission`**. It accepts client-supplied `action`, `entityType`, `entityId`, `details` and `metadata`, and inserts them into `audit_logs`.
   - When there is no logged-in user it still writes, with `actor_name = "System"` (`audit.ts:91–107`).
   - It is called from **85 sites** across action modules, for example `src/lib/actions/assets.ts:141`. **None** of the callers checks the returned `{ error }`, so a failed write is silently lost.
   - Combined with F-01 (no INSERT policy), this call returns an error for user sessions. The product's business-event audit trail is therefore probably **not being written at all** for these 85 sites.
-- **Fix direction:** convert to an internal (non-exported-action) helper that writes via a `SECURITY DEFINER` RPC restricted to an allow-list of action codes, derives the actor from the server session, and have callers check results. See backlog **B-02**.
-
+- **Fix direction:** convert to an internal (non-exported-action) helper that writes via a `SECURITY DEFINER` RPC restricted to an allow-list of action codes, derives the actor from the server session, and have callers check results.
 ### F-03 — Medium: nine `as any` casts violate the coding standard
 - **Standard:** AGENTS.md §4.1 — "Avoid `any`", new code must be fully typed.
 - **Evidence:**
@@ -79,8 +77,7 @@ Severity: **Critical** = data integrity or authorization failure in production p
   - `src/lib/actions/sessions.ts:44`
   - `src/lib/observability/sentry.ts:31`
 - **Note:** `src/lib/auth/permissions-map.ts:102` matches only because of the word "any" in a comment; it is not a cast.
-- **Fix direction:** type the Supabase join shapes explicitly (for example `EmployeeJoin | EmployeeJoin[] | null`). Backlog **B-03**.
-
+- **Fix direction:** type the Supabase join shapes explicitly (for example `EmployeeJoin | EmployeeJoin[] | null`).
 ### F-04 — Medium: authorization gaps are real but narrow (no unguarded data mutation found)
 - A function-level scan of `src/lib/actions/*.ts` flagged 6 exported functions that write without a *literal* guard call. Manual review cleared 5 of them:
   - `unlockEmployeeAccountAction` (`auth.ts:374`) — guarded by `assertAnyPermission(["employee.edit","settings.manage"])` and CSRF origin check.
@@ -88,39 +85,33 @@ Severity: **Critical** = data integrity or authorization failure in production p
   - `loginAction`, `logoutAction`, `changePasswordAction` — authentication endpoints by design (CSRF-checked; login rate-limited).
   - `writeAuditLogAction` — **not cleared**; see F-02.
 - Self-approval guardrails were checked on the leave and reimbursement paths referenced in the golden-path docs; they were not exhaustively re-verified in this pass.
-- **Fix direction:** add a permanent lint or test that asserts every exported mutating action calls `assertPermission`/`assertAnyPermission`. Backlog **B-04**.
-
+- **Fix direction:** add a permanent lint or test that asserts every exported mutating action calls `assertPermission`/`assertAnyPermission`.
 ### F-05 — Medium: mock-auth cookie has a hard-coded fallback secret, a stale comment, and an unsigned test path
 - **Evidence:**
   - `src/lib/auth/mock-cookie.ts:20` — `MOCK_COOKIE_SECRET` falls back to the literal `"hrms-mock-dev-secret-key-2026"` if the env var is unset.
   - `src/lib/auth/mock-cookie.ts:1–15` — the header comment states "Full HMAC signing was removed". The same file now contains HMAC signing (`getHmacKey`, `bufferToHex`). The comment is wrong; the code is the newer behaviour. AGENTS.md §2.4 ("cryptographically signed") is therefore correct.
   - `src/lib/auth/mock-cookie.ts:69` — when `NODE_ENV === "test"`, a bare `email@…` cookie without `:` is accepted **without a signature**.
 - **Mitigation already present:** production returns `null` for mock sessions (`mock-cookie.ts:44, 66`) and `loginAction` requires `NEXT_PUBLIC_MOCK_AUTH === "true"` (`auth.ts:35–36`).
-- **Fix direction:** fail fast when mock auth is enabled and `MOCK_COOKIE_SECRET` is unset; correct the comment; keep the unsigned test path behind an explicit test-only flag. Backlog **B-05**.
-
+- **Fix direction:** fail fast when mock auth is enabled and `MOCK_COOKIE_SECRET` is unset; correct the comment; keep the unsigned test path behind an explicit test-only flag.
 ### F-06 — Medium: documentation drift (agents will be misled if they trust the counts)
 See §5 for the full register. Headline items: schema "24 files" (actual 29 numbered + bootstrap/combined/mock), action modules "22" (actual 26), tests "405 / 604 / 400+" (actual 649), `vitest.config.ts` (actual `vitest.config.mts`), `docs/DATABASE_MIGRATIONS.md` linked from README but missing.
 
-### F-07 — Medium (decision needed): dirty working tree
-- `git status`: 23 modified, 25 deleted (all of `.wayfinder/`), 7 untracked, including `schema/27_assets.sql` (header says **v2.8**; no CHANGELOG entry), `src/lib/actions/assets.ts`, `src/app/assets/`, `scripts/build-prod.mjs`, `scripts/db-migrate.mjs`, `src/components/shared/ThemeToggle.tsx`.
+### F-07 — Medium (resolved 2026-10-19): dirty working tree
+- **Resolution:** committed in `9118089` and pushed to `origin/main`. The `.wayfinder/` deletion was confirmed intended by the owner.
+- At review time, `git status` showed 23 modified, 25 deleted (all of `.wayfinder/`), 7 untracked, including `schema/27_assets.sql` (header says **v2.8**; no CHANGELOG entry), `src/lib/actions/assets.ts`, `src/app/assets/`, `scripts/build-prod.mjs`, `scripts/db-migrate.mjs`, `src/components/shared/ThemeToggle.tsx`.
 - `schema/combined_init.sql` is modified in the working tree. It is in sync with the sources now, but CI diffs it against the committed copy.
-- **Risk:** agents working from this tree will mix committed and uncommitted behaviour. **Decision for a human:** commit the assets module and tooling as a reviewed change set, and decide whether `.wayfinder/` deletion is intended (the wayfinder ticket IDs are still referenced by `docs/FLOW_MATRIX.md` and the product docs). Backlog **B-06**.
+- **Risk:** agents working from this tree will mix committed and uncommitted behaviour. The wayfinder ticket IDs are still referenced by `docs/FLOW_MATRIX.md` and the product docs (see D-11).
 
 ### F-08 — Low/unverified: product claims to confirm
-- `README.md` says the system provides "automated payslip generation and distribution". Payslips exist in payroll code (`src/lib/services/payroll.ts`, `src/lib/actions/payroll.ts`), but **no outbound mail transport** (`resend`, `smtp`, `nodemailer`, `sendEmail`) was found in `src/**/*.ts`. Distribution may be in-app only. Confirm and correct the README, or build the transport. Backlog **B-07**.
-- `CONTEXT.md` lists the employee `withdrawn` lifecycle state as **unmodeled** (gap D5). The remediation report marks D5 "Resolved", but its evidence is **leave-request withdrawal** (`withdrawLeaveRequestAction`), which is a different concept. The terminology must be reconciled. Backlog **B-08**.
-
+- `README.md` says the system provides "automated payslip generation and distribution". Payslips exist in payroll code (`src/lib/services/payroll.ts`, `src/lib/actions/payroll.ts`), but **no outbound mail transport** (`resend`, `smtp`, `nodemailer`, `sendEmail`) was found in `src/**/*.ts`. Distribution may be in-app only. Confirm and correct the README, or build the transport.- `CONTEXT.md` lists the employee `withdrawn` lifecycle state as **unmodeled** (gap D5). The remediation report marks D5 "Resolved", but its evidence is **leave-request withdrawal** (`withdrawLeaveRequestAction`), which is a different concept. The terminology must be reconciled.
 ### F-09 — Low: small hygiene items
-- `src/app/permissions/` has no `error.tsx` boundary, unlike payroll, leave, attendance, employees. Backlog **B-09**.
-- Two `console.*` calls remain in `src/lib/actions/` (the logger util exists at `src/lib/utils/logger.ts`). `pino` (plan item P1-7) is **not** adopted. Backlog **B-10** (decide: adopt pino or formally retire the plan item).
-- Vitest runs with `fileParallelism: false` (`vitest.config.mts:9`) to avoid Windows file-handle exhaustion. The suite is correct but slow locally. Backlog **B-11**.
-
+- `src/app/permissions/` has no `error.tsx` boundary, unlike payroll, leave, attendance, employees.- Two `console.*` calls remain in `src/lib/actions/` (the logger util exists at `src/lib/utils/logger.ts`). `pino` (plan item P1-7) is **not** adopted. Decision still open: adopt pino or formally retire the plan item.
+- Vitest runs with `fileParallelism: false` (`vitest.config.mts:9`) to avoid Windows file-handle exhaustion. The suite is correct but slow locally.
 ### F-10 — Medium: the standard action return type is not used
 - **Standard:** AGENTS.md §4.1 — `ActionResponse<T> = { success, data?, error? }`, used by every server action.
 - **Reality:** `ActionResponse` is defined in exactly one file (`src/lib/actions/assets.ts:7`). The other action modules return ad hoc objects (`{ success, error }`, `{ error }`, or `void`), and `assertPermission` returns `{ error } | null`, which is not the standard shape.
 - **Impact:** callers cannot rely on one discriminated result type, so typing and error handling drift from module to module. This is the same root cause as the `as any` casts in F-03.
-- **Fix direction:** move the type to `src/lib/types/actions.ts`, align `assertPermission`'s return, and migrate modules incrementally. Backlog **B-19**.
-
+- **Fix direction:** move the type to `src/lib/types/actions.ts`, align `assertPermission`'s return, and migrate modules incrementally.
 ---
 
 ## 4. Status of the September gap plan (`.kilo/plans/1788259522931-comprehensive-e2e-gap-analysis.md`)
@@ -142,7 +133,7 @@ That plan lists 48 gaps. Verified against the code today:
 | P1-6 Account lockout | ✅ Done | `failed_login_attempts`/`locked_until` in `schema/02_org.sql` and `26_…`; unlock action exists |
 | P1-7 Structured logging (pino) | ❌ Open | `pino` not in `package.json`; custom logger only |
 
-**Conclusion:** the plan is superseded. Treat it as history. The only open item it still carries is P1-7, and the new backlog tracks it as B-10.
+**Conclusion:** the plan is superseded. Treat it as history. The only open item it still carries is P1-7, and no ticket is open for it (the review ticket board was cleared on 2026-10-19).
 
 ---
 
@@ -166,7 +157,7 @@ That plan lists 48 gaps. Verified against the code today:
 | D-14 | `AGENTS.md` §6 file map | `src/lib/auth/roles.ts` | File does not exist (corrected in this review's AGENTS.md update) |
 | D-15 | `AGENTS.md` §4.1 | Standard `ActionResponse<T>` type | Defined in one file only (see F-10) |
 
-**Resolution:** the new `docs/agents/` set is the current source. Older documents should either be updated or marked `Superseded by docs/agents/…`. Backlog **B-12**.
+**Resolution:** the new `docs/agents/` set is the current source. Older documents should either be updated or marked `Superseded by docs/agents/…`. No ticket is open for it (cleared 2026-10-19); it remains a known drift to fix.
 
 ---
 

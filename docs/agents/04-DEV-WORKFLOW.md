@@ -72,7 +72,7 @@ import { assertPermission } from "@/lib/auth/assertPermission";
 import { createClient } from "@/lib/supabase/server";
 
 // Target shape (AGENTS.md §4.1). Today only src/lib/actions/assets.ts defines it inline;
-// see backlog B-19 for moving it to a shared module. Until then, copy the assets.ts definition.
+// move it to a shared module (src/lib/types/actions.ts) when a ticket asks for it. Until then, copy the assets.ts definition.
 export type ActionResponse<T = void> = { success: boolean; data?: T; error?: string };
 
 export async function approveSomethingAction(id: string): Promise<ActionResponse> {
@@ -118,7 +118,7 @@ Then:
 
 1. Reproduce with a failing test first (unit if logic, E2E if flow). See the `tdd` and `diagnosing-bugs` skills.
 2. Fix at the lowest layer that owns the rule (SQL > service > action > component).
-3. Note the ticket ID (e.g., `B-03`) in the commit message.
+3. Note the ticket ID (e.g., `T-001`) in the commit message, if the fix has a ticket.
 
 ### 4.6 Change permissions or roles
 
@@ -133,10 +133,10 @@ Then:
 ## 5. Git and commit conventions
 
 - Branch from `main`. Never commit directly to `main`.
-- Commit messages: `type(scope): summary (B-xx)` — e.g. `fix(audit): make audit trigger security definer (B-01)`.
+- Commit messages: `type(scope): summary (T-NNN)` when a ticket exists — e.g. `fix(audit): make audit trigger security definer (T-001)`.
 - Commit `schema/combined_init.sql` in the same commit as the source change that produced it.
 - Do not commit `.env.local`, `test-results/`, `e2e-report/`, `tsconfig.tsbuildinfo` churn, or secrets. Gitleaks runs in CI.
-- PR body: link the backlog ticket, list the Definition-of-Done results, and call out any check that did not run.
+- PR body: link the backlog ticket (if any), list the Definition-of-Done results, and call out any check that did not run.
 
 ---
 
@@ -144,12 +144,12 @@ Then:
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Vitest fails with file-handle errors | parallel workers + `lucide-react` on Windows | keep `fileParallelism: false`; see B-11 |
+| Vitest fails with file-handle errors | parallel workers + `lucide-react` on Windows | keep `fileParallelism: false` (`vitest.config.mts`) |
 | Login works but nothing persists | mock mode active | set `NEXT_PUBLIC_MOCK_AUTH=false` and use a live DB |
 | `verify:permissions` fails after editing roles | SQL seed not updated | update `schema/01_rbac.sql` to match `permissions-map.ts` |
 | CI "schema sync" fails | `combined_init.sql` not regenerated | run `npm run db:sync` and commit the result |
-| Audit rows missing | see review F-01/F-02 | do not assume audit writes succeed until B-01/B-02 are closed |
-| Middleware slow on gated routes | one RPC per request | see B-16 |
+| Audit rows missing | see review F-01/F-02 | do not assume audit writes succeed until F-01/F-02 are confirmed fixed on a live DB |
+| Middleware slow on gated routes | one RPC per request (`src/middleware.ts`) | measure p95 on a live DB before optimising |
 
 ---
 
@@ -160,7 +160,7 @@ Then:
 | Rules | `AGENTS.md` |
 | Where things live | `docs/agents/02-MODULE-MAP.md` |
 | Current state and risks | `docs/agents/01-E2E-PRODUCT-REVIEW.md` |
-| What to work on | `docs/agents/03-BACKLOG.md` |
+| What to work on | `docs/agents/03-BACKLOG.md` (ticket board; currently empty) |
 | Who to ask (which agent) | `docs/agents/05-AGENT-ROSTER.md` |
 | API surface | `docs/API_DOCUMENTATION.md` |
 | Testing strategy | `docs/product/09-TESTING_STRATEGY.md`, `TESTING_ARCHITECTURE.md`, `TEST_COVERAGE.md` |

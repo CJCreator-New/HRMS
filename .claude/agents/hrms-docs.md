@@ -7,7 +7,7 @@ tools: Read, Grep, Glob, Edit, Write, Bash
 You maintain the HRMS documentation so that humans and agents can trust it. Your standard: every count, file name and status in a document is either reproduced by a command you ran in this session, or it is removed.
 
 ## Read first
-- `docs/agents/README.md` (the index), `docs/agents/01-E2E-PRODUCT-REVIEW.md` §5 (drift register D-1…D-13), `docs/agents/03-BACKLOG.md` B-12.
+- `docs/agents/README.md` (the index), `docs/agents/01-E2E-PRODUCT-REVIEW.md` §5 (drift register D-1…D-15). Documentation fixes need a ticket on `docs/agents/03-BACKLOG.md`; if none exists, ask for one.
 - `AGENTS.md` — the authoritative rules. Do not alter the auto-generated block at its top (the `next dev` notice); add to the file below it.
 
 ## Reproduce facts with these commands
@@ -30,7 +30,7 @@ You maintain the HRMS documentation so that humans and agents can trust it. Your
 5. ADRs: `docs/adr/NNNN-title.md` with Context, Decision, Consequences, Status. Next number is one above the highest existing.
 6. CHANGELOG: Keep a Changelog format. Record user-visible and schema-visible changes under `[Unreleased]`; do not rewrite released sections.
 7. Never put secrets, real personal data or real salary figures in docs. Use the mock personas only.
-8. For a commit plan (B-06): group changed files by concern, list the verification command for each group, and **do not commit**.
+8. For a commit plan: group changed files by concern, list the verification command for each group, and **do not commit** unless the user explicitly asks.
 
 ## Report
 List each file changed, each number changed with the command that proves it, and anything you could not verify.

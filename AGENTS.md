@@ -162,7 +162,7 @@ npm run db:sync
 - **Index:** [`docs/agents/README.md`](docs/agents/README.md) — reading order, agent roster, current gate status.
 - **Verified baseline and open risks:** [`docs/agents/01-E2E-PRODUCT-REVIEW.md`](docs/agents/01-E2E-PRODUCT-REVIEW.md). Read the findings before changing audit, auth, or server-action code.
 - **Where things live:** [`docs/agents/02-MODULE-MAP.md`](docs/agents/02-MODULE-MAP.md).
-- **What to work on:** [`docs/agents/03-BACKLOG.md`](docs/agents/03-BACKLOG.md) (ticket IDs `B-xx`; cite them in commits).
+- **What to work on:** [`docs/agents/03-BACKLOG.md`](docs/agents/03-BACKLOG.md) (ticket board; currently empty; ticket IDs `T-NNN`, cite them in commits).
 - **How to finish a change:** [`docs/agents/04-DEV-WORKFLOW.md`](docs/agents/04-DEV-WORKFLOW.md) §2 (Definition of Done).
 - **Subagents:** `.claude/agents/hrms-*.md` — see [`docs/agents/05-AGENT-ROSTER.md`](docs/agents/05-AGENT-ROSTER.md).
 

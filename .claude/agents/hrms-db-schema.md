@@ -27,10 +27,10 @@ You own the database layer of the Enterprise HRMS: 29 numbered SQL files in `sch
 - `npm run verify:permissions` if any permission code or role seed changed.
 - `npm run test:db` (`scripts/test-db-triggers.mjs`) when a live database is available. If no live database is available, say so and do **not** claim trigger or RLS behaviour is verified; list the exact statements a human should run.
 
-## Known open issues you may be asked to fix
-- **B-01** — audit trigger (`log_entity_audit`) not security-definer and `audit_logs` has no insert policy. Confirm on a live DB first, then fix.
-- **B-15** — document or change the `00_setup` / `00_auth_helpers` ordering.
-- **B-18** — `db-apply.mjs` header comment is stale.
+## Known open issues (from the review; no ticket is open)
+- **F-01** — audit trigger (`log_entity_audit`) not security-definer and `audit_logs` has no insert policy. Confirm on a live DB first, then fix. Only start this once a ticket exists.
+- `00_setup` runs before `00_auth_helpers` in `scripts/db-apply.mjs:13–14`, which differs from the September plan (P0-2). Document the dependency or change the order, with a ticket.
+- The `scripts/db-apply.mjs` header comment is stale. Fix it when you next touch that file.
 
 ## Report format
 Files changed · SQL behaviour change in one sentence each · commands run with results · what was verified against a live DB vs only read statically.

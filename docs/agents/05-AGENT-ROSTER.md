@@ -46,7 +46,7 @@ Run independent branches in parallel (for example, UI and server action in diffe
 Paste this into the agent prompt. Fill every field; write `none` when a field does not apply.
 
 ```
-Ticket: B-xx — <title>  (docs/agents/03-BACKLOG.md)
+Ticket: T-NNN — <title>  (docs/agents/03-BACKLOG.md)
 Goal: <one sentence: the behaviour that must be true afterwards>
 In scope: <files / modules>
 Out of scope: <explicit exclusions>
@@ -71,28 +71,20 @@ Report: files changed; command + exit code + summary for each gate; what was NOT
 
 No agent may mark its own work as passing a gate it did not run.
 
-## 5. Ticket order (recommended)
+## 5. Ticket order
 
-1. **B-06** — human decision on the working tree (unblocks everything else; agents work on a clean base).
-2. **B-01** — confirm the audit-trigger issue on a live DB (`hrms-db-schema` + `hrms-test-engineer`).
-3. **B-02** — audit write redesign (`hrms-rbac-auditor` design → `hrms-server-action-dev`).
-4. **B-04** — guard-coverage regression test (`hrms-test-engineer`).
-5. **B-03**, **B-19** — typing clean-up (`hrms-server-action-dev`), one module per PR.
-6. **B-05** — mock cookie hardening (`hrms-rbac-auditor`).
-7. **B-13** — run the gates this review could not run (`hrms-test-engineer`).
-8. **B-12** — documentation reconciliation (`hrms-docs`), after the counts above settle.
-9. P2 and P3 items as capacity allows.
+The ticket board was cleared on 2026-10-19 (see [03-BACKLOG.md](./03-BACKLOG.md)). Order new tickets by priority there. Before the first ticket, two checks are worth a ticket each: confirm the audit trigger on a live database (review F-01/F-02 in [01-E2E-PRODUCT-REVIEW.md](./01-E2E-PRODUCT-REVIEW.md)), and run the gates the review could not run (build, integration, DB, E2E).
 
 ## 6. Example invocations
 
-**Verify the audit trigger (B-01 step 1):**
-> Use `hrms-db-schema`. Ticket B-01 step 1 only. Against the live database in `.env.local`, confirm whether a user-scoped `update` on `employees` succeeds and whether it writes an `audit_logs` row. Do not change schema yet. Report the exact error text if it fails.
+**Verify the audit trigger (review F-01):**
+> Use `hrms-db-schema`. Against the live database in `.env.local`, confirm whether a user-scoped `update` on `employees` succeeds and whether it writes an `audit_logs` row. Do not change schema yet. Report the exact error text if it fails.
 
 **Review a change before merge:**
 > Use `hrms-rbac-auditor` on the diff of the current branch against `main`. Apply the checklist and return the report format.
 
-**Guard test (B-04):**
-> Use `hrms-test-engineer`. Ticket B-04. Write the guard-coverage test described in `docs/agents/03-BACKLOG.md`. Run `npx vitest run` on that file and report the result. Do not change action code.
+**Ticketed work (template):**
+> Use `hrms-test-engineer`. Ticket T-NNN, as written in `docs/agents/03-BACKLOG.md`. Write the test it describes. Run `npx vitest run` on that file and report the result. Do not change action code.
 
-**Documentation reconcile (B-12):**
-> Use `hrms-docs`. Ticket B-12. Reproduce each count in `docs/agents/01-E2E-PRODUCT-REVIEW.md` §5 with the commands listed in its agent file, then update the documents named there. Report each change with its command.
+**Documentation reconcile (review drift register D-1…D-15):**
+> Use `hrms-docs`. Reproduce each count in `docs/agents/01-E2E-PRODUCT-REVIEW.md` §5 with the commands listed in its agent file, then update the documents named there. Report each change with its command.
